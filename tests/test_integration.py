@@ -1,5 +1,6 @@
 """End-to-end tests against a mocked OpenRouter client."""
 
+import pytest
 from homeassistant.components import conversation, stt, tts
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_API_KEY
@@ -17,9 +18,9 @@ from .test_decision import answers, choice, noul
 AGENT = "conversation.jev_assist"
 
 
-async def _converse(hass, text, language="en"):
+async def _converse(hass, text, language="en", conversation_id=None):
     return await conversation.async_converse(
-        hass, text, None, Context(), language=language, agent_id=AGENT
+        hass, text, conversation_id, Context(), language=language, agent_id=AGENT
     )
 
 
@@ -158,6 +159,69 @@ async def test_decision_failure_falls_back_to_llm(hass, entry, client):
 
     assert not calls
     assert result.response.speech["plain"]["speech"] == "Hello."
+
+
+async def test_answer_to_a_question_goes_to_the_llm_with_the_question(
+    hass, entry, client
+):
+    hass.states.async_set("light.kitchen", "off", {"friendly_name": "Kitchen light"})
+    hass.states.async_set("light.bedroom", "off", {"friendly_name": "Bedroom light"})
+    calls = async_mock_service(hass, "light", "turn_on")
+    client.decide.return_value = answers(names_device=noul(0.3))
+    client.chat.return_value = {"role": "assistant", "content": "Which light?"}
+
+    result = await _converse(hass, "turn on the light")
+
+    # The question keeps the microphone open, so no wake word is needed.
+    assert result.continue_conversation
+    assert "question mark" in client.chat.call_args.args[1][0]["content"]
+
+    # On its own Jev would read the answer as a clear command.
+    client.decide.reset_mock()
+    client.decide.return_value = answers()
+    client.chat.return_value = {"role": "assistant", "content": "Done."}
+
+    result = await _converse(
+        hass, "the kitchen one", conversation_id=result.conversation_id
+    )
+
+    client.decide.assert_not_called()
+    assert not calls
+    assert not result.continue_conversation
+    messages = client.chat.call_args.args[1]
+    assert [(m["role"], m["content"]) for m in messages[1:4]] == [
+        ("user", "turn on the light"),
+        ("assistant", "Which light?"),
+        ("user", "the kitchen one"),
+    ]
+
+    # Nothing is pending any more, so the next command is Jev's again.
+    await _converse(
+        hass, "turn on the kitchen light", conversation_id=result.conversation_id
+    )
+
+    client.decide.assert_called_once()
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        ("Which light do you mean?", True),
+        ("Did you mean the **kitchen light?**", True),
+        ("Kterou myslíte, „kuchyň“ nebo „ložnici“? 🙂", True),
+        ("Which one? Tell me the room.", False),
+        ("Done.", False),
+    ],
+)
+async def test_only_a_closing_question_keeps_listening(
+    hass, entry, client, reply, expected
+):
+    client.chat.return_value = {"role": "assistant", "content": reply}
+
+    result = await _converse(hass, "hello")
+
+    assert result.continue_conversation is expected
 
 
 async def test_stt_wraps_pcm_in_wav(hass, entry, client):

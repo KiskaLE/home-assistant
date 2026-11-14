@@ -35,6 +35,11 @@ Jev dělá úzké úsudky, kód podle nich jedná.
      k dispozici nástroje Home Assistanta.
 3. Odemykání a otevírání vyžadují jistotu alespoň 0,9, jinak rozhoduje LLM.
    Čísla (jas, teplota, hlasitost) čte z textu kód, ne model.
+4. Když LLM něco chybí nebo požadavek není jednoznačný, nehádá a zeptá se.
+   Po odpovědi zakončené otázkou nechá Home Assistant mikrofon otevřený, takže
+   odpovíte bez aktivačního slova (pokud to hlasové zařízení umí). Vaše odpověď
+   jde rovnou do LLM, který vidí celý rozhovor; Jev posuzuje každý požadavek
+   samostatně a bez otázky by jí nerozuměl.
 
 Jev umí ovládat světla, vypínače, ventilátory, rolety a vrata, topení, zámky,
 přehrávače, vysavače, scény a skripty. Vidí nejvýš 250 zpřístupněných entit.
