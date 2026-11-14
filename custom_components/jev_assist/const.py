@@ -19,7 +19,7 @@ CONF_CONFIDENCE = "confidence_threshold"
 DEFAULT_DECISION_MODEL = "~typesafe/jev-latest"
 DEFAULT_CHAT_MODEL = "~anthropic/claude-haiku-latest"
 DEFAULT_STT_MODEL = "elevenlabs/scribe-v2"
-DEFAULT_TTS_MODEL = "elevenlabs/eleven-flash-v2.5"
+DEFAULT_TTS_MODEL = "elevenlabs/eleven-v4-turbo"
 DEFAULT_TTS_VOICE = "sarah"
 DEFAULT_CONFIDENCE = 0.7
 

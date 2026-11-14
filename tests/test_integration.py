@@ -10,7 +10,14 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
 
 from custom_components.jev_assist.api import OpenRouterAuthError, OpenRouterError
-from custom_components.jev_assist.const import DOMAIN
+from custom_components.jev_assist.config_flow import DEFAULT_OPTIONS
+from custom_components.jev_assist.const import (
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_DECISION_MODEL,
+    DEFAULT_STT_MODEL,
+    DEFAULT_TTS_MODEL,
+    DOMAIN,
+)
 
 from .test_decision import answers, choice, noul
 
@@ -38,8 +45,17 @@ async def test_config_flow(hass, client):
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_API_KEY: "sk-test"}
     )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "models"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {**DEFAULT_OPTIONS, "chat_model": "openai/custom", "llm_hass_api": []},
+    )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["options"]["decision_model"] == "~typesafe/jev-latest"
+    assert result["data"] == {CONF_API_KEY: "sk-test"}
+    assert result["options"]["decision_model"] == DEFAULT_DECISION_MODEL
+    assert result["options"]["chat_model"] == "openai/custom"
+    assert "llm_hass_api" not in result["options"]
 
 
 async def test_options_flow(hass, entry):
@@ -74,7 +90,7 @@ async def test_confident_command_calls_service_without_llm(hass, entry, client):
     assert result.response.speech["plain"]["speech"] == "Turning on Kitchen light."
     client.chat.assert_not_called()
     model, state, questions = client.decide.call_args.args
-    assert model == "~typesafe/jev-latest"
+    assert model == DEFAULT_DECISION_MODEL
     assert state["request"] == "turn on the kitchen light"
     assert "action_light" in questions
 
@@ -113,7 +129,7 @@ async def test_conversation_falls_back_to_llm(hass, entry, client):
     assert not calls
     assert result.response.speech["plain"]["speech"] == "Why did the bulb..."
     model, messages, tools = client.chat.call_args.args
-    assert model == "~anthropic/claude-haiku-latest"
+    assert model == DEFAULT_CHAT_MODEL
     assert messages[0]["role"] == "system"
     assert messages[1] == {"role": "user", "content": "tell me a joke"}
     assert tools and all(t["type"] == "function" for t in tools)
@@ -180,7 +196,7 @@ async def test_stt_wraps_pcm_in_wav(hass, entry, client):
     assert result.result is stt.SpeechResultState.SUCCESS
     assert result.text == "rozsviť v kuchyni"
     model, audio, audio_format, language = client.transcribe.call_args.args
-    assert (model, audio_format, language) == ("elevenlabs/scribe-v2", "wav", "cs")
+    assert (model, audio_format, language) == (DEFAULT_STT_MODEL, "wav", "cs")
     assert audio.startswith(b"RIFF") and audio.endswith(b"\x00\x01" * 100)
 
 
@@ -194,7 +210,7 @@ async def test_tts_returns_mp3_with_configured_voice(hass, entry, client):
     ]
     assert await entity.async_get_tts_audio("Ahoj", "cs-CZ", {}) == ("mp3", b"ID3audio")
     assert client.speak.call_args.args == (
-        "elevenlabs/eleven-flash-v2.5",
+        DEFAULT_TTS_MODEL,
         "Ahoj",
         "sarah",
     )

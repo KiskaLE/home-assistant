@@ -8,7 +8,7 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.jev_assist.config_flow import DEFAULT_OPTIONS
-from custom_components.jev_assist.const import DOMAIN
+from custom_components.jev_assist.const import DEFAULT_TTS_MODEL, DOMAIN
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +22,7 @@ def client():
     mock = AsyncMock()
     mock.list_models.return_value = [
         {
-            "id": "elevenlabs/eleven-flash-v2.5",
+            "id": DEFAULT_TTS_MODEL,
             "supported_voices": ["george", "sarah"],
             "supported_parameters": ["tools"],
         }

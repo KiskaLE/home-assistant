@@ -13,7 +13,7 @@ Home Assistanta (Assist):
 | - | - | - |
 | Konverzační agent | Rozumí požadavku a ovládá domácnost | `~typesafe/jev-latest` + `~anthropic/claude-haiku-latest` |
 | Převod řeči na text | Přepíše nahrávku z mikrofonu | `elevenlabs/scribe-v2` |
-| Převod textu na řeč | Přečte odpověď | `elevenlabs/eleven-flash-v2.5`, hlas `sarah` |
+| Převod textu na řeč | Přečte odpověď | `elevenlabs/eleven-v4-turbo`, hlas `sarah` |
 
 ## Jak to funguje
 
@@ -50,15 +50,17 @@ Je potřeba Home Assistant 2026.10 nebo novější.
 ## Nastavení
 
 1. **Nastavení → Zařízení a služby → Přidat integraci → Jev Assist** a vložte
-   API klíč z <https://openrouter.ai/keys>.
+   API klíč z <https://openrouter.ai/keys>. V dalším kroku vyberte modely a hlas,
+   nebo nechte výchozí hodnoty.
 2. **Nastavení → Hlasoví asistenti → Přidat asistenta** a vyberte Jev Assist
    jako konverzačního agenta, převod řeči na text i převod textu na řeč.
 3. V **Nastavení → Hlasoví asistenti → Zpřístupnit** zvolte entity, které má
    asistent vidět.
 
-Modely, hlas, instrukce pro LLM a práh jistoty se mění v **Konfigurovat**
-u integrace. Nabídky modelů se načítají živě z katalogu OpenRouter; hlasy závisí
-na zvoleném modelu pro převod textu na řeč.
+Modely, hlas, instrukce pro LLM a práh jistoty se později mění v
+**Konfigurovat** u integrace, bez zásahu do kódu. Nabídky modelů se načítají
+živě z katalogu OpenRouter; hlasy závisí na zvoleném modelu pro převod textu na
+řeč.
 
 ## Vývoj
 
