@@ -6,6 +6,7 @@ from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import Context
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
@@ -72,7 +73,9 @@ async def test_confident_command_calls_service_without_llm(hass, entry, client):
 
     assert len(calls) == 1
     assert calls[0].data == {"entity_id": ["light.kitchen"]}
-    assert result.response.speech["plain"]["speech"] == "Turning on Kitchen light."
+    # The light going on is the confirmation; nothing is said.
+    assert result.response.speech["plain"]["speech"] == ""
+    assert not result.continue_conversation
     client.chat.assert_not_called()
     model, state, questions = client.decide.call_args.args
     assert model == "~typesafe/jev-latest"
@@ -97,8 +100,32 @@ async def test_compound_request_is_split_and_each_part_executed(hass, entry, cli
     result = await _converse(hass, "kitchen light on and bedroom light off")
 
     assert len(on) == 1 and len(off) == 1
+    assert result.response.speech["plain"]["speech"] == ""
+
+
+async def test_failed_part_of_a_request_is_spoken_with_the_rest(hass, entry, client):
+    hass.states.async_set("light.kitchen", "off", {"friendly_name": "Kitchen light"})
+    hass.states.async_set("light.bedroom", "on", {"friendly_name": "Bedroom light"})
+    async_mock_service(hass, "light", "turn_on")
+
+    async def broken(call):
+        raise HomeAssistantError("Bedroom light is unreachable")
+
+    hass.services.async_register("light", "turn_off", broken)
+    client.decide.side_effect = [
+        answers(compound=noul(0.95)),
+        answers(),
+        answers(device=choice("light.bedroom"), action_light=choice("turn_off")),
+    ]
+    client.chat.return_value = {
+        "content": '["turn on the kitchen light", "turn off the bedroom light"]'
+    }
+
+    result = await _converse(hass, "kitchen light on and bedroom light off")
+
     assert result.response.speech["plain"]["speech"] == (
-        "Turning on Kitchen light. Turning off Bedroom light."
+        "Turning on Kitchen light."
+        " Sorry, that did not work: Bedroom light is unreachable"
     )
 
 
@@ -188,6 +215,27 @@ async def test_llm_tool_call_round_trip(hass, entry, client):
     assert [m["role"] for m in messages[-3:]] == ["assistant", "tool", "assistant"]
     assert messages[-3]["tool_calls"][0]["function"]["name"] == "GetDateTime"
     assert messages[-2]["tool_call_id"] == "call_1"
+
+
+@pytest.mark.parametrize("reply", [".", " . ", None, "", "?"])
+async def test_llm_reply_without_words_is_not_spoken(hass, entry, client, reply):
+    client.chat.return_value = {"role": "assistant", "content": reply}
+
+    result = await _converse(hass, "set a nice mood in the kitchen")
+
+    assert result.response.speech["plain"]["speech"] == ""
+    assert not result.continue_conversation
+    assert 'reply with only "."' in client.chat.call_args.args[1][0]["content"]
+
+    # The history sent on the next turn never holds an empty message.
+    client.chat.return_value = {"role": "assistant", "content": "It is on."}
+    result = await _converse(
+        hass, "is the light on", conversation_id=result.conversation_id
+    )
+
+    assert result.response.speech["plain"]["speech"] == "It is on."
+    messages = client.chat.call_args.args[1]
+    assert messages[2] == {"role": "assistant", "content": reply or "."}
 
 
 async def test_decision_failure_falls_back_to_llm(hass, entry, client):

@@ -72,6 +72,18 @@ _FOLLOW_UP_PROMPT = (
     "End a reply with a question only when you need the answer. Never add"
     ' offers of further help such as "Anything else?".'
 )
+# What a reply that should not be spoken looks like. Home Assistant skips
+# text-to-speech for an empty reply, but a model cannot reliably send nothing
+# and some providers reject an empty message in the history, so the model
+# sends this instead and the code turns it into silence.
+_SILENT_REPLY = "."
+_SILENT_PROMPT = (
+    "When you have done what the user asked and there is nothing they need to"
+    f' hear, do not confirm it: reply with only "{_SILENT_REPLY}" and nothing'
+    " else, which is not read aloud. The user sees or hears that it worked."
+    " Speak only when you have to: to answer a question, to ask one, or to say"
+    " that something failed or was done differently than asked."
+)
 # Appended when web search is on. The reply is spoken, so the links and source
 # lists that search results invite have to stay out of it.
 _WEB_SEARCH_PROMPT = (
@@ -93,6 +105,11 @@ _ENDS_WITH_QUESTION = re.compile(r"[?;\u037e\uff1f]\W*\Z")
 def _expects_answer(text: str | None) -> bool:
     """Return whether a reply ends with a question for the user."""
     return bool(text and _ENDS_WITH_QUESTION.search(text))
+
+
+def _is_silent(text: str | None) -> bool:
+    """Return whether a reply has no words, so there is nothing to say."""
+    return not (text and re.search(r"\w", text))
 
 
 def _answers_question(chat_log: conversation.ChatLog) -> bool:
@@ -170,9 +187,13 @@ def _to_message(content: conversation.Content) -> dict[str, Any] | None:
         if not content.content:
             return None
         return {"role": content.role, "content": content.content}
-    message: dict[str, Any] = {"role": "assistant", "content": content.content}
-    if isinstance(content, conversation.AssistantContent) and content.tool_calls:
-        message["tool_calls"] = [
+    if not isinstance(content, conversation.AssistantContent) or not content.tool_calls:
+        # A model may also stay silent by sending nothing at all.
+        return {"role": "assistant", "content": content.content or _SILENT_REPLY}
+    return {
+        "role": "assistant",
+        "content": content.content,
+        "tool_calls": [
             {
                 "type": "function",
                 "id": call.id,
@@ -182,8 +203,8 @@ def _to_message(content: conversation.Content) -> dict[str, Any] | None:
                 },
             }
             for call in content.tool_calls
-        ]
-    return message
+        ],
+    }
 
 
 async def _to_delta(
@@ -218,6 +239,10 @@ async def _to_delta(
         )
     if tool_calls:
         delta["tool_calls"] = tool_calls
+    elif not delta["content"]:
+        # Home Assistant reports an error for a reply with nothing in it, and
+        # a model told to keep quiet may well send exactly that.
+        delta["content"] = _SILENT_REPLY
     yield delta
 
 
@@ -254,6 +279,7 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
             return await self._async_run_llm(user_input, chat_log)
 
         replies = []
+        failed = False
         for plan in plans:
             try:
                 for call in plan.calls:
@@ -266,16 +292,22 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
                     )
             except (HomeAssistantError, probatio.Invalid) as err:
                 LOGGER.warning("Service call failed: %s", err)
+                failed = True
                 replies.append(describe_failure(str(err), user_input.language))
             else:
                 replies.append(describe(plan, user_input.language))
 
+        # A command that worked needs no confirmation. When a part failed, the
+        # whole outcome is spoken so it is clear what did happen.
+        speech = " ".join(replies) if failed else ""
         chat_log.async_add_assistant_content_without_tools(
             conversation.AssistantContent(
-                agent_id=user_input.agent_id, content=" ".join(replies)
+                agent_id=user_input.agent_id, content=speech or _SILENT_REPLY
             )
         )
-        return conversation.async_get_result_from_chat_log(user_input, chat_log)
+        result = conversation.async_get_result_from_chat_log(user_input, chat_log)
+        result.response.async_set_speech(speech)
+        return result
 
     async def _async_decide(
         self, text: str, entities: list[EntityInfo], allow_split: bool
@@ -353,6 +385,7 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
         instructions = [
             (options.get(CONF_PROMPT) or llm.DEFAULT_INSTRUCTIONS_PROMPT).rstrip(),
             _FOLLOW_UP_PROMPT,
+            _SILENT_PROMPT,
         ]
         if web_search:
             instructions.append(_WEB_SEARCH_PROMPT)
@@ -392,7 +425,12 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
                 break
 
         result = conversation.async_get_result_from_chat_log(user_input, chat_log)
+        reply = chat_log.content[-1].content
+        if _is_silent(reply):
+            result.response.async_set_speech("")
+            result.continue_conversation = False
+            return result
         # Home Assistant only looks at the very last character; also keep
         # listening when the question is followed by a quote, formatting or emoji.
-        result.continue_conversation = _expects_answer(chat_log.content[-1].content)
+        result.continue_conversation = _expects_answer(reply)
         return result

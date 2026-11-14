@@ -46,6 +46,9 @@ Jev dělá úzké úsudky, kód podle nich jedná.
    [serverový nástroj](https://openrouter.ai/docs/guides/features/server-tools/web-search),
    takže stačí stejný API klíč. Každé hledání stojí zhruba cent navíc k ceně
    modelu; v nastavení integrace se dá vypnout.
+6. Povedený povel asistent nepotvrzuje: světlo se rozsvítí a tím to končí.
+   Promluví, jen když má co říct, tedy když odpovídá na dotaz, na něco se ptá,
+   nebo když se něco nepovedlo či dopadlo jinak, než jste chtěli.
 
 Jev umí ovládat světla, vypínače, ventilátory, rolety a vrata, topení, zámky,
 přehrávače, vysavače, scény a skripty. Vidí nejvýš 250 zpřístupněných entit.
