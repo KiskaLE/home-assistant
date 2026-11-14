@@ -32,7 +32,7 @@ Jev dělá úzké úsudky, kód podle nich jedná.
    - složený požadavek („rozsviť v kuchyni a zhasni v ložnici“) → LLM ho rozdělí
      a každou část posoudí Jev zvlášť,
    - konverzace, dotaz na stav nebo cokoli nejistého → převezme LLM, který má
-     k dispozici nástroje Home Assistanta.
+     k dispozici nástroje Home Assistanta a hledání na internetu.
 3. Odemykání a otevírání vyžadují jistotu alespoň 0,9, jinak rozhoduje LLM.
    Čísla (jas, teplota, hlasitost) čte z textu kód, ne model.
 4. Když LLM něco chybí nebo požadavek není jednoznačný, nehádá a zeptá se.
@@ -40,6 +40,15 @@ Jev dělá úzké úsudky, kód podle nich jedná.
    odpovíte bez aktivačního slova (pokud to hlasové zařízení umí). Vaše odpověď
    jde rovnou do LLM, který vidí celý rozhovor; Jev posuzuje každý požadavek
    samostatně a bez otázky by jí nerozuměl.
+
+5. Na aktuální věci (zprávy, výsledky, ceny, otevírací doby) si LLM sám vyhledá
+   odpověď na internetu. Hledání běží u OpenRouteru jako
+   [serverový nástroj](https://openrouter.ai/docs/guides/features/server-tools/web-search),
+   takže stačí stejný API klíč. Každé hledání stojí zhruba cent navíc k ceně
+   modelu; v nastavení integrace se dá vypnout.
+6. Povedený povel asistent nepotvrzuje: světlo se rozsvítí a tím to končí.
+   Promluví, jen když má co říct, tedy když odpovídá na dotaz, na něco se ptá,
+   nebo když se něco nepovedlo či dopadlo jinak, než jste chtěli.
 
 Jev umí ovládat světla, vypínače, ventilátory, rolety a vrata, topení, zámky,
 přehrávače, vysavače, scény a skripty. Vidí nejvýš 250 zpřístupněných entit.
@@ -61,7 +70,7 @@ Je potřeba Home Assistant 2026.10 nebo novější.
 3. V **Nastavení → Hlasoví asistenti → Zpřístupnit** zvolte entity, které má
    asistent vidět.
 
-Modely, hlas, instrukce pro LLM a práh jistoty se mění v **Konfigurovat**
+Modely, hlas, instrukce pro LLM, hledání na internetu a práh jistoty se mění v **Konfigurovat**
 u integrace. Nabídky modelů se načítají živě z katalogu OpenRouter; hlasy závisí
 na zvoleném modelu pro převod textu na řeč.
 

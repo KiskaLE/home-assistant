@@ -33,13 +33,16 @@ from .const import (
     CONF_CHAT_MODEL,
     CONF_CONFIDENCE,
     CONF_DECISION_MODEL,
+    CONF_WEB_SEARCH,
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONFIDENCE,
     DEFAULT_DECISION_MODEL,
+    DEFAULT_WEB_SEARCH,
     DOMAIN,
     LOGGER,
     MAX_ENTITIES,
     MAX_TOOL_ITERATIONS,
+    WEB_SEARCH_TOOL,
 )
 from .decision import (
     DOMAIN_ACTIONS,
@@ -69,6 +72,31 @@ _FOLLOW_UP_PROMPT = (
     "End a reply with a question only when you need the answer. Never add"
     ' offers of further help such as "Anything else?".'
 )
+# What a reply that should not be spoken looks like. Home Assistant skips
+# text-to-speech for an empty reply, but a model cannot reliably send nothing
+# and some providers reject an empty message in the history, so the model
+# sends this instead and the code turns it into silence.
+_SILENT_REPLY = "."
+_SILENT_PROMPT = (
+    "When you have done what the user asked and there is nothing they need to"
+    f' hear, do not confirm it: reply with only "{_SILENT_REPLY}" and nothing'
+    " else, which is not read aloud. The user sees or hears that it worked."
+    " Speak only when you have to: to answer a question, to ask one, or to say"
+    " that something failed or was done differently than asked."
+)
+# Appended when web search is on. The reply is spoken, so the links and source
+# lists that search results invite have to stay out of it.
+_WEB_SEARCH_PROMPT = (
+    "You can search the web. Search whenever the answer depends on current or"
+    " outside information, such as news, sports results, prices, opening hours"
+    " or facts you are not sure about, instead of answering from memory or"
+    " saying you cannot look it up. Do not search for anything about the home"
+    " and its devices.\n"
+    "Your reply is read aloud: give the answer in a sentence or two, without"
+    " links, source lists or formatting."
+)
+# Tools OpenRouter runs itself are named like "openrouter:web_search".
+_SERVER_TOOL_PREFIX = "openrouter:"
 # A question mark (also the Greek and the full-width one) with nothing after
 # it but punctuation, quotes, formatting or emoji.
 _ENDS_WITH_QUESTION = re.compile(r"[?;\u037e\uff1f]\W*\Z")
@@ -77,6 +105,11 @@ _ENDS_WITH_QUESTION = re.compile(r"[?;\u037e\uff1f]\W*\Z")
 def _expects_answer(text: str | None) -> bool:
     """Return whether a reply ends with a question for the user."""
     return bool(text and _ENDS_WITH_QUESTION.search(text))
+
+
+def _is_silent(text: str | None) -> bool:
+    """Return whether a reply has no words, so there is nothing to say."""
+    return not (text and re.search(r"\w", text))
 
 
 def _answers_question(chat_log: conversation.ChatLog) -> bool:
@@ -154,9 +187,13 @@ def _to_message(content: conversation.Content) -> dict[str, Any] | None:
         if not content.content:
             return None
         return {"role": content.role, "content": content.content}
-    message: dict[str, Any] = {"role": "assistant", "content": content.content}
-    if isinstance(content, conversation.AssistantContent) and content.tool_calls:
-        message["tool_calls"] = [
+    if not isinstance(content, conversation.AssistantContent) or not content.tool_calls:
+        # A model may also stay silent by sending nothing at all.
+        return {"role": "assistant", "content": content.content or _SILENT_REPLY}
+    return {
+        "role": "assistant",
+        "content": content.content,
+        "tool_calls": [
             {
                 "type": "function",
                 "id": call.id,
@@ -166,21 +203,30 @@ def _to_message(content: conversation.Content) -> dict[str, Any] | None:
                 },
             }
             for call in content.tool_calls
-        ]
-    return message
+        ],
+    }
 
 
 async def _to_delta(
-    message: dict[str, Any],
+    message: dict[str, Any], can_call_tools: bool
 ) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
-    """Convert a chat completions message to a chat log delta."""
+    """Convert a chat completions message to a chat log delta.
+
+    Only calls Home Assistant can run are kept. OpenRouter has already run its
+    own tools, such as web search, by the time it replies.
+    """
     delta: conversation.AssistantContentDeltaDict = {
         "role": "assistant",
         "content": message.get("content"),
     }
     tool_calls = []
     for call in message.get("tool_calls") or []:
-        if call.get("type") != "function":
+        if (
+            not can_call_tools
+            or call.get("type") != "function"
+            or call["function"]["name"].startswith(_SERVER_TOOL_PREFIX)
+        ):
+            LOGGER.debug("Ignoring a tool call Home Assistant does not run: %s", call)
             continue
         try:
             arguments = json.loads(call["function"].get("arguments") or "{}")
@@ -193,6 +239,10 @@ async def _to_delta(
         )
     if tool_calls:
         delta["tool_calls"] = tool_calls
+    elif not delta["content"]:
+        # Home Assistant reports an error for a reply with nothing in it, and
+        # a model told to keep quiet may well send exactly that.
+        delta["content"] = _SILENT_REPLY
     yield delta
 
 
@@ -229,6 +279,7 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
             return await self._async_run_llm(user_input, chat_log)
 
         replies = []
+        failed = False
         for plan in plans:
             try:
                 for call in plan.calls:
@@ -241,16 +292,22 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
                     )
             except (HomeAssistantError, probatio.Invalid) as err:
                 LOGGER.warning("Service call failed: %s", err)
+                failed = True
                 replies.append(describe_failure(str(err), user_input.language))
             else:
                 replies.append(describe(plan, user_input.language))
 
+        # A command that worked needs no confirmation. When a part failed, the
+        # whole outcome is spoken so it is clear what did happen.
+        speech = " ".join(replies) if failed else ""
         chat_log.async_add_assistant_content_without_tools(
             conversation.AssistantContent(
-                agent_id=user_input.agent_id, content=" ".join(replies)
+                agent_id=user_input.agent_id, content=speech or _SILENT_REPLY
             )
         )
-        return conversation.async_get_result_from_chat_log(user_input, chat_log)
+        result = conversation.async_get_result_from_chat_log(user_input, chat_log)
+        result.response.async_set_speech(speech)
+        return result
 
     async def _async_decide(
         self, text: str, entities: list[EntityInfo], allow_split: bool
@@ -322,26 +379,34 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
-        """Answer with the conversational LLM, with Home Assistant tools."""
+        """Answer with the conversational LLM, with Home Assistant tools and the web."""
         options = self.entry.options
+        web_search = options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH)
+        instructions = [
+            (options.get(CONF_PROMPT) or llm.DEFAULT_INSTRUCTIONS_PROMPT).rstrip(),
+            _FOLLOW_UP_PROMPT,
+            _SILENT_PROMPT,
+        ]
+        if web_search:
+            instructions.append(_WEB_SEARCH_PROMPT)
         try:
             await chat_log.async_provide_llm_data(
                 user_input.as_llm_context(DOMAIN),
                 options.get(CONF_LLM_HASS_API) or None,
-                (options.get(CONF_PROMPT) or llm.DEFAULT_INSTRUCTIONS_PROMPT).rstrip()
-                + "\n"
-                + _FOLLOW_UP_PROMPT,
+                "\n".join(instructions),
                 user_input.extra_system_prompt,
             )
         except conversation.ConverseError as err:
             return err.as_conversation_result()
 
-        tools = None
+        tools: list[dict[str, Any]] = []
         if chat_log.llm_api:
             tools = [
                 _format_tool(tool, chat_log.llm_api.custom_serializer)
                 for tool in chat_log.llm_api.tools
             ]
+        if web_search:
+            tools.append(WEB_SEARCH_TOOL)
         messages = [m for c in chat_log.content if (m := _to_message(c))]
         model = options.get(CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL)
 
@@ -351,7 +416,7 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
                 [
                     m
                     async for content in chat_log.async_add_delta_content_stream(
-                        self.entity_id, _to_delta(message)
+                        self.entity_id, _to_delta(message, chat_log.llm_api is not None)
                     )
                     if (m := _to_message(content))
                 ]
@@ -360,7 +425,12 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
                 break
 
         result = conversation.async_get_result_from_chat_log(user_input, chat_log)
+        reply = chat_log.content[-1].content
+        if _is_silent(reply):
+            result.response.async_set_speech("")
+            result.continue_conversation = False
+            return result
         # Home Assistant only looks at the very last character; also keep
         # listening when the question is followed by a quote, formatting or emoji.
-        result.continue_conversation = _expects_answer(chat_log.content[-1].content)
+        result.continue_conversation = _expects_answer(reply)
         return result

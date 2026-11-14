@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Připojení OpenRouter",
-        "description": "Jev Assist běží celý v cloudu přes OpenRouter. API klíč vytvoříte na https://openrouter.ai/keys.",
+        "description": "Jev Assist běží celý v cloudu přes OpenRouter. API klíč vytvoříte na {keys_url}.",
         "data": {
           "api_key": "API klíč OpenRouter"
         }
@@ -26,6 +26,7 @@
           "confidence_threshold": "Jistota potřebná k akci bez LLM",
           "chat_model": "Konverzační model (LLM)",
           "llm_hass_api": "Ovládání Home Assistanta pro LLM",
+          "web_search": "Hledání na internetu",
           "prompt": "Instrukce pro LLM",
           "stt_model": "Model pro převod řeči na text",
           "tts_model": "Model pro převod textu na řeč",
@@ -35,6 +36,7 @@
           "decision_model": "Posuzuje každý požadavek jako první. Jev odpovídá ve zlomku sekundy.",
           "confidence_threshold": "Při nižší jistotě jde požadavek do LLM. Odemykání a otevírání vždy vyžadují alespoň 0,9.",
           "chat_model": "Řeší konverzaci, dotazy a vše, čím si rozhodovací model není jistý. Musí podporovat volání nástrojů.",
+          "web_search": "LLM si sám vyhledá aktuální informace, když je k odpovědi potřebuje. Hledání zajišťuje OpenRouter a každé stojí zhruba cent navíc k ceně modelu.",
           "tts_voice": "Hlasy závisí na modelu pro převod textu na řeč. Po změně modelu nastavení uložte a otevřete znovu, zobrazí se jeho hlasy."
         }
       }

@@ -6,6 +6,8 @@ DOMAIN = "jev_assist"
 LOGGER = logging.getLogger(__package__)
 
 API_BASE = "https://openrouter.ai/api/v1"
+# Where the user creates an API key; shown in the config flow.
+KEYS_URL = "https://openrouter.ai/keys"
 # Jev and other decision models are served by OpenRouter's Decisions endpoint.
 DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
 
@@ -15,6 +17,7 @@ CONF_STT_MODEL = "stt_model"
 CONF_TTS_MODEL = "tts_model"
 CONF_TTS_VOICE = "tts_voice"
 CONF_CONFIDENCE = "confidence_threshold"
+CONF_WEB_SEARCH = "web_search"
 
 DEFAULT_DECISION_MODEL = "~typesafe/jev-latest"
 DEFAULT_CHAT_MODEL = "~anthropic/claude-haiku-latest"
@@ -22,6 +25,7 @@ DEFAULT_STT_MODEL = "elevenlabs/scribe-v2"
 DEFAULT_TTS_MODEL = "elevenlabs/eleven-flash-v2.5"
 DEFAULT_TTS_VOICE = "sarah"
 DEFAULT_CONFIDENCE = 0.7
+DEFAULT_WEB_SEARCH = True
 
 # Actions that are hard to undo need a stricter threshold before Jev may act
 # without the LLM (see TypeSafe's "routing by confidence" pattern).
@@ -30,6 +34,9 @@ SENSITIVE_CONFIDENCE = 0.9
 NOUL_YES = 0.7
 
 MAX_TOOL_ITERATIONS = 10
+# OpenRouter runs this tool on its side: the model decides when to search and
+# gets the results back within the same request, so no code here executes it.
+WEB_SEARCH_TOOL = {"type": "openrouter:web_search"}
 # A Choice question accepts up to 255 options.
 MAX_ENTITIES = 250
 
