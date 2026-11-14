@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncGenerator
 from typing import Any, Literal
 
@@ -56,6 +57,35 @@ _SPLIT_PROMPT = (
     " each. Every command must be complete on its own and in the user's"
     " language. Reply with only a JSON array of strings."
 )
+
+# Appended to the LLM instructions. Home Assistant keeps the microphone open,
+# without the wake word, after a reply that ends with a question.
+_FOLLOW_UP_PROMPT = (
+    "If the request is ambiguous or something you need is missing, such as"
+    " which device, which room or what value, do not guess. Ask one short"
+    " question and put it at the very end of your reply, ending with a"
+    " question mark: the microphone then stays open and the user can answer"
+    " without saying the wake word.\n"
+    "End a reply with a question only when you need the answer. Never add"
+    ' offers of further help such as "Anything else?".'
+)
+# A question mark (also the Greek and the full-width one) with nothing after
+# it but punctuation, quotes, formatting or emoji.
+_ENDS_WITH_QUESTION = re.compile(r"[?;\u037e\uff1f]\W*\Z")
+
+
+def _expects_answer(text: str | None) -> bool:
+    """Return whether a reply ends with a question for the user."""
+    return bool(text and _ENDS_WITH_QUESTION.search(text))
+
+
+def _answers_question(chat_log: conversation.ChatLog) -> bool:
+    """Return whether the new message answers a question the assistant asked."""
+    # The last entry is the new user message, the one before it the last reply.
+    if len(chat_log.content) < 2:
+        return False
+    previous = chat_log.content[-2]
+    return previous.role == "assistant" and _expects_answer(previous.content)
 
 
 async def async_setup_entry(
@@ -187,7 +217,14 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
         """Route the request: act directly when Jev is sure, else ask the LLM."""
-        plans = await self._async_fast_path(user_input.text)
+        # An answer to a question only makes sense together with the question.
+        # Jev judges a request on its own, so the LLM, which sees the whole
+        # conversation, takes the answer.
+        plans = (
+            None
+            if _answers_question(chat_log)
+            else await self._async_fast_path(user_input.text)
+        )
         if plans is None:
             return await self._async_run_llm(user_input, chat_log)
 
@@ -291,7 +328,9 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
             await chat_log.async_provide_llm_data(
                 user_input.as_llm_context(DOMAIN),
                 options.get(CONF_LLM_HASS_API) or None,
-                options.get(CONF_PROMPT),
+                (options.get(CONF_PROMPT) or llm.DEFAULT_INSTRUCTIONS_PROMPT).rstrip()
+                + "\n"
+                + _FOLLOW_UP_PROMPT,
                 user_input.extra_system_prompt,
             )
         except conversation.ConverseError as err:
@@ -320,4 +359,8 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
             if not chat_log.unresponded_tool_results:
                 break
 
-        return conversation.async_get_result_from_chat_log(user_input, chat_log)
+        result = conversation.async_get_result_from_chat_log(user_input, chat_log)
+        # Home Assistant only looks at the very last character; also keep
+        # listening when the question is followed by a quote, formatting or emoji.
+        result.continue_conversation = _expects_answer(chat_log.content[-1].content)
+        return result
