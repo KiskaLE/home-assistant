@@ -117,7 +117,48 @@ async def test_conversation_falls_back_to_llm(hass, entry, client):
     assert model == "~anthropic/claude-haiku-latest"
     assert messages[0]["role"] == "system"
     assert messages[1] == {"role": "user", "content": "tell me a joke"}
+    # Home Assistant's tools plus the search OpenRouter runs on its side.
+    assert tools[-1] == {"type": "openrouter:web_search"}
+    assert len(tools) > 1 and all(t["type"] == "function" for t in tools[:-1])
+    assert "search the web" in messages[0]["content"]
+
+
+async def test_web_search_can_be_turned_off(hass, entry, client):
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "web_search": False}
+    )
+    await hass.async_block_till_done()
+    client.chat.return_value = {"role": "assistant", "content": "Hello."}
+
+    await _converse(hass, "hello")
+
+    _, messages, tools = client.chat.call_args.args
     assert tools and all(t["type"] == "function" for t in tools)
+    assert "search the web" not in messages[0]["content"]
+
+
+async def test_web_search_works_without_home_assistant_tools(hass, entry, client):
+    options = {k: v for k, v in entry.options.items() if k != "llm_hass_api"}
+    hass.config_entries.async_update_entry(entry, options=options)
+    await hass.async_block_till_done()
+    # OpenRouter may echo the search it already ran; nothing here executes it.
+    client.chat.return_value = {
+        "role": "assistant",
+        "content": "It is sunny in Prague.",
+        "tool_calls": [
+            {
+                "id": "srv_1",
+                "type": "function",
+                "function": {"name": "openrouter:web_search", "arguments": "{}"},
+            }
+        ],
+    }
+
+    result = await _converse(hass, "what is the weather in Prague")
+
+    assert result.response.speech["plain"]["speech"] == "It is sunny in Prague."
+    client.chat.assert_called_once()
+    assert client.chat.call_args.args[2] == [{"type": "openrouter:web_search"}]
 
 
 async def test_llm_tool_call_round_trip(hass, entry, client):

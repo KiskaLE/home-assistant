@@ -14,6 +14,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import llm
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -35,12 +36,14 @@ from .const import (
     CONF_STT_MODEL,
     CONF_TTS_MODEL,
     CONF_TTS_VOICE,
+    CONF_WEB_SEARCH,
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONFIDENCE,
     DEFAULT_DECISION_MODEL,
     DEFAULT_STT_MODEL,
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_VOICE,
+    DEFAULT_WEB_SEARCH,
     DOMAIN,
     LOGGER,
 )
@@ -53,6 +56,7 @@ DEFAULT_OPTIONS = {
     CONF_TTS_VOICE: DEFAULT_TTS_VOICE,
     CONF_CONFIDENCE: DEFAULT_CONFIDENCE,
     CONF_LLM_HASS_API: [llm.LLM_API_ASSIST],
+    CONF_WEB_SEARCH: DEFAULT_WEB_SEARCH,
 }
 
 
@@ -180,6 +184,7 @@ class JevAssistOptionsFlow(OptionsFlowWithReload):
                 probatio.Optional(CONF_LLM_HASS_API): SelectSelector(
                     SelectSelectorConfig(options=hass_apis, multiple=True)
                 ),
+                probatio.Required(CONF_WEB_SEARCH): BooleanSelector(),
                 probatio.Optional(CONF_PROMPT): TemplateSelector(),
                 probatio.Required(CONF_STT_MODEL): _model_selector(
                     ids["stt"], options[CONF_STT_MODEL]

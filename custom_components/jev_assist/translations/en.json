@@ -26,6 +26,7 @@
           "confidence_threshold": "Confidence needed to act without the LLM",
           "chat_model": "Conversation model (LLM)",
           "llm_hass_api": "Home Assistant control for the LLM",
+          "web_search": "Web search",
           "prompt": "Instructions for the LLM",
           "stt_model": "Speech-to-text model",
           "tts_model": "Text-to-speech model",
@@ -35,6 +36,7 @@
           "decision_model": "Judges every request first. Jev answers in a fraction of a second.",
           "confidence_threshold": "Below this confidence the request goes to the LLM instead. Unlocking and opening always need at least 0.9.",
           "chat_model": "Handles conversation, questions and anything the decision model is not sure about. Must support tool calling.",
+          "web_search": "The LLM looks up current information on its own when an answer needs it. OpenRouter runs the search and each one costs about a cent on top of the model price.",
           "tts_voice": "Voices depend on the text-to-speech model. Save and reopen the options after changing the model to see its voices."
         }
       }

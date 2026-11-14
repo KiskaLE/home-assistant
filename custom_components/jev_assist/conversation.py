@@ -33,13 +33,16 @@ from .const import (
     CONF_CHAT_MODEL,
     CONF_CONFIDENCE,
     CONF_DECISION_MODEL,
+    CONF_WEB_SEARCH,
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONFIDENCE,
     DEFAULT_DECISION_MODEL,
+    DEFAULT_WEB_SEARCH,
     DOMAIN,
     LOGGER,
     MAX_ENTITIES,
     MAX_TOOL_ITERATIONS,
+    WEB_SEARCH_TOOL,
 )
 from .decision import (
     DOMAIN_ACTIONS,
@@ -69,6 +72,19 @@ _FOLLOW_UP_PROMPT = (
     "End a reply with a question only when you need the answer. Never add"
     ' offers of further help such as "Anything else?".'
 )
+# Appended when web search is on. The reply is spoken, so the links and source
+# lists that search results invite have to stay out of it.
+_WEB_SEARCH_PROMPT = (
+    "You can search the web. Search whenever the answer depends on current or"
+    " outside information, such as news, sports results, prices, opening hours"
+    " or facts you are not sure about, instead of answering from memory or"
+    " saying you cannot look it up. Do not search for anything about the home"
+    " and its devices.\n"
+    "Your reply is read aloud: give the answer in a sentence or two, without"
+    " links, source lists or formatting."
+)
+# Tools OpenRouter runs itself are named like "openrouter:web_search".
+_SERVER_TOOL_PREFIX = "openrouter:"
 # A question mark (also the Greek and the full-width one) with nothing after
 # it but punctuation, quotes, formatting or emoji.
 _ENDS_WITH_QUESTION = re.compile(r"[?;\u037e\uff1f]\W*\Z")
@@ -171,16 +187,25 @@ def _to_message(content: conversation.Content) -> dict[str, Any] | None:
 
 
 async def _to_delta(
-    message: dict[str, Any],
+    message: dict[str, Any], can_call_tools: bool
 ) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
-    """Convert a chat completions message to a chat log delta."""
+    """Convert a chat completions message to a chat log delta.
+
+    Only calls Home Assistant can run are kept. OpenRouter has already run its
+    own tools, such as web search, by the time it replies.
+    """
     delta: conversation.AssistantContentDeltaDict = {
         "role": "assistant",
         "content": message.get("content"),
     }
     tool_calls = []
     for call in message.get("tool_calls") or []:
-        if call.get("type") != "function":
+        if (
+            not can_call_tools
+            or call.get("type") != "function"
+            or call["function"]["name"].startswith(_SERVER_TOOL_PREFIX)
+        ):
+            LOGGER.debug("Ignoring a tool call Home Assistant does not run: %s", call)
             continue
         try:
             arguments = json.loads(call["function"].get("arguments") or "{}")
@@ -322,26 +347,33 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
         user_input: conversation.ConversationInput,
         chat_log: conversation.ChatLog,
     ) -> conversation.ConversationResult:
-        """Answer with the conversational LLM, with Home Assistant tools."""
+        """Answer with the conversational LLM, with Home Assistant tools and the web."""
         options = self.entry.options
+        web_search = options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH)
+        instructions = [
+            (options.get(CONF_PROMPT) or llm.DEFAULT_INSTRUCTIONS_PROMPT).rstrip(),
+            _FOLLOW_UP_PROMPT,
+        ]
+        if web_search:
+            instructions.append(_WEB_SEARCH_PROMPT)
         try:
             await chat_log.async_provide_llm_data(
                 user_input.as_llm_context(DOMAIN),
                 options.get(CONF_LLM_HASS_API) or None,
-                (options.get(CONF_PROMPT) or llm.DEFAULT_INSTRUCTIONS_PROMPT).rstrip()
-                + "\n"
-                + _FOLLOW_UP_PROMPT,
+                "\n".join(instructions),
                 user_input.extra_system_prompt,
             )
         except conversation.ConverseError as err:
             return err.as_conversation_result()
 
-        tools = None
+        tools: list[dict[str, Any]] = []
         if chat_log.llm_api:
             tools = [
                 _format_tool(tool, chat_log.llm_api.custom_serializer)
                 for tool in chat_log.llm_api.tools
             ]
+        if web_search:
+            tools.append(WEB_SEARCH_TOOL)
         messages = [m for c in chat_log.content if (m := _to_message(c))]
         model = options.get(CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL)
 
@@ -351,7 +383,7 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
                 [
                     m
                     async for content in chat_log.async_add_delta_content_stream(
-                        self.entity_id, _to_delta(message)
+                        self.entity_id, _to_delta(message, chat_log.llm_api is not None)
                     )
                     if (m := _to_message(content))
                 ]
