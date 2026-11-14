@@ -1,0 +1,14 @@
+{
+  "domain": "jev_assist",
+  "name": "Jev Assist",
+  "after_dependencies": ["assist_pipeline", "intent"],
+  "codeowners": ["@KiskaLE"],
+  "config_flow": true,
+  "dependencies": ["conversation"],
+  "documentation": "https://github.com/KiskaLE/home-assistant",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/KiskaLE/home-assistant/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
