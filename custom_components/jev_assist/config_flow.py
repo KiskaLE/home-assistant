@@ -45,6 +45,7 @@ from .const import (
     DEFAULT_TTS_VOICE,
     DEFAULT_WEB_SEARCH,
     DOMAIN,
+    KEYS_URL,
     LOGGER,
 )
 
@@ -101,6 +102,8 @@ class JevAssistConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+            # hassfest does not allow URLs in the translated strings.
+            description_placeholders={"keys_url": KEYS_URL},
         )
 
 

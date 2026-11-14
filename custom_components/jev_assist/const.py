@@ -6,6 +6,8 @@ DOMAIN = "jev_assist"
 LOGGER = logging.getLogger(__package__)
 
 API_BASE = "https://openrouter.ai/api/v1"
+# Where the user creates an API key; shown in the config flow.
+KEYS_URL = "https://openrouter.ai/keys"
 # Jev and other decision models are served by OpenRouter's Decisions endpoint.
 DECISIONS_URL = "https://openrouter.ai/api/alpha/decisions"
 

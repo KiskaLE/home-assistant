@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect OpenRouter",
-        "description": "Jev Assist runs entirely in the cloud through OpenRouter. Create an API key at https://openrouter.ai/keys.",
+        "description": "Jev Assist runs entirely in the cloud through OpenRouter. Create an API key at {keys_url}.",
         "data": {
           "api_key": "OpenRouter API key"
         }

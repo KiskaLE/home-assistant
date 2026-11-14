@@ -2,6 +2,7 @@
   "domain": "jev_assist",
   "name": "Jev Assist",
   "after_dependencies": ["assist_pipeline", "intent"],
+  "categories": ["ai_voice.voice_assistants", "ai_voice.speech"],
   "codeowners": ["@KiskaLE"],
   "config_flow": true,
   "dependencies": ["conversation"],

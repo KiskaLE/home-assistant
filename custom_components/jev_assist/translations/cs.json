@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Připojení OpenRouter",
-        "description": "Jev Assist běží celý v cloudu přes OpenRouter. API klíč vytvoříte na https://openrouter.ai/keys.",
+        "description": "Jev Assist běží celý v cloudu přes OpenRouter. API klíč vytvoříte na {keys_url}.",
         "data": {
           "api_key": "API klíč OpenRouter"
         }
