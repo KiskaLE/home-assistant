@@ -1,0 +1,55 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect OpenRouter",
+        "description": "Jev Assist runs entirely in the cloud through OpenRouter. Create an API key at https://openrouter.ai/keys.",
+        "data": {
+          "api_key": "OpenRouter API key"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "OpenRouter rejected the API key.",
+      "cannot_connect": "Could not reach OpenRouter."
+    },
+    "abort": {
+      "already_configured": "This API key is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Jev Assist options",
+        "data": {
+          "decision_model": "Decision model",
+          "confidence_threshold": "Confidence needed to act without the LLM",
+          "chat_model": "Conversation model (LLM)",
+          "llm_hass_api": "Home Assistant control for the LLM",
+          "prompt": "Instructions for the LLM",
+          "stt_model": "Speech-to-text model",
+          "tts_model": "Text-to-speech model",
+          "tts_voice": "Voice"
+        },
+        "data_description": {
+          "decision_model": "Judges every request first. Jev answers in a fraction of a second.",
+          "confidence_threshold": "Below this confidence the request goes to the LLM instead. Unlocking and opening always need at least 0.9.",
+          "chat_model": "Handles conversation, questions and anything the decision model is not sure about. Must support tool calling.",
+          "tts_voice": "Voices depend on the text-to-speech model. Save and reopen the options after changing the model to see its voices."
+        }
+      }
+    }
+  },
+  "entity": {
+    "stt": {
+      "stt": {
+        "name": "Speech-to-text"
+      }
+    },
+    "tts": {
+      "tts": {
+        "name": "Text-to-speech"
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+pytest-homeassistant-custom-component
+ruff
+# Requirements of the Home Assistant components the tests load
+# (conversation, stt, tts).
+hassil
+home-assistant-intents
+gazetteer-matcher
+ha-ffmpeg
+mutagen
