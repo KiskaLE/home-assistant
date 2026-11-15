@@ -74,6 +74,12 @@ Modely, hlas, instrukce pro LLM, hledání na internetu a práh jistoty se měn�
 u integrace. Nabídky modelů se načítají živě z katalogu OpenRouter; hlasy závisí
 na zvoleném modelu pro převod textu na řeč.
 
+Řeč se standardně přenáší jako MP3. Formát zvuku lze přepnout na PCM, který je
+nekomprimovaný, začne hrát dřív a některé modely (například Gemini TTS) jiný
+neumí. OpenRouter u PCM neuvádí vzorkovací frekvenci, proto se nastavuje ručně:
+většina modelů používá 24000 Hz, a pokud hlas zní moc rychle nebo pomalu, je
+potřeba ji změnit.
+
 ## Vývoj
 
 ```bash

@@ -1,5 +1,10 @@
 """End-to-end tests against a mocked OpenRouter client."""
 
+import asyncio
+import io
+import wave
+from unittest.mock import MagicMock
+
 import pytest
 from homeassistant.components import conversation, stt, tts
 from homeassistant.config_entries import SOURCE_USER
@@ -7,6 +12,7 @@ from homeassistant.const import CONF_API_KEY
 from homeassistant.core import Context
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import chat_session
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
@@ -47,12 +53,18 @@ async def test_config_flow(hass, client):
 async def test_options_flow(hass, entry):
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.FORM
-    user_input = {**entry.options, "chat_model": "openai/custom", "tts_voice": "george"}
+    user_input = {
+        **entry.options,
+        "chat_model": "openai/custom",
+        "tts_voice": "george",
+        "tts_format": "pcm",
+    }
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], user_input
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options["chat_model"] == "openai/custom"
+    assert entry.options["tts_format"] == "pcm"
 
 
 async def test_entities_are_created(hass, entry):
@@ -217,6 +229,41 @@ async def test_llm_tool_call_round_trip(hass, entry, client):
     assert messages[-2]["tool_call_id"] == "call_1"
 
 
+async def test_text_sent_with_a_tool_call_is_not_part_of_the_reply(hass, entry, client):
+    client.chat.side_effect = [
+        {
+            "role": "assistant",
+            "content": "Let me check the time.",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "GetDateTime", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "assistant", "content": "It is noon."},
+    ]
+    spoken = []
+
+    def listener(chat_log, delta):
+        spoken.append(delta.get("content"))
+
+    # A voice pipeline reads every piece of assistant text it is sent aloud.
+    with (
+        chat_session.async_get_chat_session(hass) as session,
+        conversation.async_get_chat_log(
+            hass, session, chat_log_delta_listener=listener
+        ),
+    ):
+        result = await _converse(
+            hass, "what time is it", conversation_id=session.conversation_id
+        )
+
+    assert result.response.speech["plain"]["speech"] == "It is noon."
+    assert [text for text in spoken if text] == ["It is noon."]
+
+
 @pytest.mark.parametrize("reply", [".", " . ", None, "", "?"])
 async def test_llm_reply_without_words_is_not_spoken(hass, entry, client, reply):
     client.chat.return_value = {"role": "assistant", "content": reply}
@@ -337,17 +384,99 @@ async def test_stt_wraps_pcm_in_wav(hass, entry, client):
     assert audio.startswith(b"RIFF") and audio.endswith(b"\x00\x01" * 100)
 
 
+def _speak(client, speak):
+    """Make the mocked client synthesize speech with `speak`."""
+    client.speak = MagicMock(side_effect=speak)
+
+
 async def test_tts_returns_mp3_with_configured_voice(hass, entry, client):
-    client.speak.return_value = b"ID3audio"
+    async def speak(model, text, voice, audio_format):
+        yield b"ID3"
+        yield b"audio"
+
+    _speak(client, speak)
     entity = hass.data[tts.DATA_COMPONENT].get_entity("tts.jev_assist_text_to_speech")
+
+    async def message():
+        yield "Ah"
+        yield "oj"
 
     assert [v.voice_id for v in entity.async_get_supported_voices("cs-CZ")] == [
         "george",
         "sarah",
     ]
-    assert await entity.async_get_tts_audio("Ahoj", "cs-CZ", {}) == ("mp3", b"ID3audio")
+    response = await entity.async_stream_tts_audio(
+        tts.TTSAudioRequest("cs-CZ", {}, message())
+    )
+    assert response.extension == "mp3"
+    assert [chunk async for chunk in response.data_gen] == [b"ID3", b"audio"]
     assert client.speak.call_args.args == (
         "elevenlabs/eleven-flash-v2.5",
         "Ahoj",
         "sarah",
+        "mp3",
     )
+
+
+async def test_tts_wraps_pcm_in_a_wav_stream(hass, entry, client):
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**entry.options, "tts_format": "pcm", "tts_sample_rate": 16000.0},
+    )
+    await hass.async_block_till_done()
+
+    async def speak(model, text, voice, audio_format):
+        yield b"\x01\x00\x02"
+        yield b"\x00"
+
+    _speak(client, speak)
+    entity = hass.data[tts.DATA_COMPONENT].get_entity("tts.jev_assist_text_to_speech")
+
+    async def message():
+        yield "Ahoj"
+
+    response = await entity.async_stream_tts_audio(
+        tts.TTSAudioRequest("cs-CZ", {}, message())
+    )
+    header, *samples = [chunk async for chunk in response.data_gen]
+
+    assert response.extension == "wav"
+    assert client.speak.call_args.args[3] == "pcm"
+    assert samples == [b"\x01\x00\x02", b"\x00"]
+    # A length that is not known yet is written as the largest possible one,
+    # which the standard library takes at its word, so it gets a real one here.
+    data = b"".join(samples)
+    sized = header[:-4] + len(data).to_bytes(4, "little") + data
+    with wave.open(io.BytesIO(sized)) as wav:
+        assert (wav.getnchannels(), wav.getsampwidth(), wav.getframerate()) == (
+            1,
+            2,
+            16000,
+        )
+        assert wav.readframes(2) == data
+
+
+async def test_tts_audio_plays_before_the_whole_reply_is_synthesized(
+    hass, entry, client
+):
+    rest = asyncio.Event()
+
+    async def speak(model, text, voice, audio_format):
+        yield b"ID3"
+        await rest.wait()
+        yield b"audio"
+
+    async def message():
+        yield "Which light do you mean?"
+
+    _speak(client, speak)
+    stream = tts.async_create_stream(hass, "tts.jev_assist_text_to_speech")
+    # A reply set as a stream is not cached, so nothing is written to disk.
+    stream.async_set_message_stream(message())
+    audio = stream.async_stream_result()
+
+    # The satellite gets the start of the reply while the rest is on its way.
+    async with asyncio.timeout(5):
+        assert await anext(audio) == b"ID3"
+    rest.set()
+    assert [chunk async for chunk in audio] == [b"audio"]

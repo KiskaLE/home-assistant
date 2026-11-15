@@ -30,14 +30,18 @@
           "prompt": "Instructions for the LLM",
           "stt_model": "Speech-to-text model",
           "tts_model": "Text-to-speech model",
-          "tts_voice": "Voice"
+          "tts_voice": "Voice",
+          "tts_format": "Audio format",
+          "tts_sample_rate": "PCM sample rate"
         },
         "data_description": {
           "decision_model": "Judges every request first. Jev answers in a fraction of a second.",
           "confidence_threshold": "Below this confidence the request goes to the LLM instead. Unlocking and opening always need at least 0.9.",
           "chat_model": "Handles conversation, questions and anything the decision model is not sure about. Must support tool calling.",
           "web_search": "The LLM looks up current information on its own when an answer needs it. OpenRouter runs the search and each one costs about a cent on top of the model price.",
-          "tts_voice": "Voices depend on the text-to-speech model. Save and reopen the options after changing the model to see its voices."
+          "tts_voice": "Voices depend on the text-to-speech model. Save and reopen the options after changing the model to see its voices.",
+          "tts_format": "MP3 works with every device. PCM is uncompressed, starts playing sooner and is the only format some models offer.",
+          "tts_sample_rate": "Only used with PCM, which does not say how fast to play it. Most models use 24000 Hz; change it if the voice sounds too fast or too slow."
         }
       }
     }
