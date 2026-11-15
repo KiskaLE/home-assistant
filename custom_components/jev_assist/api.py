@@ -134,7 +134,7 @@ class OpenRouterClient:
         return text
 
     async def speak(
-        self, model: str, text: str, voice: str, audio_format: str = "mp3"
+        self, model: str, voice: str, audio_format: str, text: str
     ) -> AsyncGenerator[bytes]:
         """Synthesize `text` and yield the audio, MP3 or raw PCM, as it arrives."""
         payload = {

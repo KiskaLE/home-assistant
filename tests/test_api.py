@@ -49,7 +49,7 @@ async def test_speak_yields_audio_while_it_is_still_being_sent(speech):
         return response
 
     handlers["speech"] = handler
-    audio = client.speak("elevenlabs/eleven-flash-v2.5", "Ahoj", "sarah", "pcm")
+    audio = client.speak("elevenlabs/eleven-flash-v2.5", "sarah", "pcm", "Ahoj")
 
     async with asyncio.timeout(5):
         assert await anext(audio) == b"ID3"
@@ -85,4 +85,4 @@ async def test_speak_reports_a_failed_request(speech, status, body, error, messa
     handlers["speech"] = handler
 
     with pytest.raises(error, match=message):
-        [chunk async for chunk in client.speak("model", "Ahoj", "sarah")]
+        [chunk async for chunk in client.speak("model", "sarah", "mp3", "Ahoj")]
