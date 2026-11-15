@@ -2,6 +2,7 @@
 
 import base64
 import json
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import aiohttp
@@ -39,15 +40,18 @@ class OpenRouterClient:
                 headers=self._headers,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             ) as response:
-                body = await response.read()
-                if response.status in (401, 403):
-                    raise OpenRouterAuthError("OpenRouter rejected the API key")
-                if response.status >= 400:
-                    detail = body.decode("utf-8", "replace")[:500]
-                    raise OpenRouterError(f"OpenRouter {response.status}: {detail}")
-                return body
+                await self._raise_for_status(response)
+                return await response.read()
         except (aiohttp.ClientError, TimeoutError) as err:
             raise OpenRouterError(f"Cannot reach OpenRouter: {err}") from err
+
+    @staticmethod
+    async def _raise_for_status(response: aiohttp.ClientResponse) -> None:
+        if response.status in (401, 403):
+            raise OpenRouterAuthError("OpenRouter rejected the API key")
+        if response.status >= 400:
+            detail = (await response.read()).decode("utf-8", "replace")[:500]
+            raise OpenRouterError(f"OpenRouter {response.status}: {detail}")
 
     async def _json(
         self, method: str, url: str, payload: Any = None, timeout: float = 60
@@ -129,15 +133,29 @@ class OpenRouterClient:
             raise OpenRouterError("Transcription response has no text")
         return text
 
-    async def speak(self, model: str, text: str, voice: str) -> bytes:
-        """Synthesize `text` and return MP3 bytes."""
+    async def speak(
+        self, model: str, text: str, voice: str, audio_format: str = "mp3"
+    ) -> AsyncGenerator[bytes]:
+        """Synthesize `text` and yield the audio, MP3 or raw PCM, as it arrives."""
         payload = {
             "model": model,
             "input": text,
             "voice": voice,
-            "response_format": "mp3",
+            "response_format": audio_format,
         }
-        audio = await self._request("POST", f"{API_BASE}/audio/speech", payload)
-        if not audio:
+        received = False
+        try:
+            async with self._session.post(
+                f"{API_BASE}/audio/speech",
+                json=payload,
+                headers=self._headers,
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as response:
+                await self._raise_for_status(response)
+                async for chunk in response.content.iter_any():
+                    received = True
+                    yield chunk
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise OpenRouterError(f"Cannot reach OpenRouter: {err}") from err
+        if not received:
             raise OpenRouterError("OpenRouter returned no audio")
-        return audio

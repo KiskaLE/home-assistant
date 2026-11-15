@@ -16,6 +16,8 @@ CONF_CHAT_MODEL = "chat_model"
 CONF_STT_MODEL = "stt_model"
 CONF_TTS_MODEL = "tts_model"
 CONF_TTS_VOICE = "tts_voice"
+CONF_TTS_FORMAT = "tts_format"
+CONF_TTS_SAMPLE_RATE = "tts_sample_rate"
 CONF_CONFIDENCE = "confidence_threshold"
 CONF_WEB_SEARCH = "web_search"
 
@@ -24,6 +26,10 @@ DEFAULT_CHAT_MODEL = "~anthropic/claude-haiku-latest"
 DEFAULT_STT_MODEL = "elevenlabs/scribe-v2"
 DEFAULT_TTS_MODEL = "elevenlabs/eleven-flash-v2.5"
 DEFAULT_TTS_VOICE = "sarah"
+DEFAULT_TTS_FORMAT = "mp3"
+# OpenRouter sends PCM as bare 16-bit mono samples and does not say at what
+# rate. 24 kHz is what most providers use; the others need it set by hand.
+DEFAULT_TTS_SAMPLE_RATE = 24000
 DEFAULT_CONFIDENCE = 0.7
 DEFAULT_WEB_SEARCH = True
 

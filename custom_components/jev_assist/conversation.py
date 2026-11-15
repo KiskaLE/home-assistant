@@ -238,6 +238,10 @@ async def _to_delta(
             )
         )
     if tool_calls:
+        # Only the final reply is for the user. Home Assistant would read text
+        # sent along with a tool call aloud in front of it, even when the final
+        # reply is silent.
+        delta["content"] = None
         delta["tool_calls"] = tool_calls
     elif not delta["content"]:
         # Home Assistant reports an error for a reply with nothing in it, and

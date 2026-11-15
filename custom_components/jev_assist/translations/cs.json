@@ -30,14 +30,18 @@
           "prompt": "Instrukce pro LLM",
           "stt_model": "Model pro převod řeči na text",
           "tts_model": "Model pro převod textu na řeč",
-          "tts_voice": "Hlas"
+          "tts_voice": "Hlas",
+          "tts_format": "Formát zvuku",
+          "tts_sample_rate": "Vzorkovací frekvence PCM"
         },
         "data_description": {
           "decision_model": "Posuzuje každý požadavek jako první. Jev odpovídá ve zlomku sekundy.",
           "confidence_threshold": "Při nižší jistotě jde požadavek do LLM. Odemykání a otevírání vždy vyžadují alespoň 0,9.",
           "chat_model": "Řeší konverzaci, dotazy a vše, čím si rozhodovací model není jistý. Musí podporovat volání nástrojů.",
           "web_search": "LLM si sám vyhledá aktuální informace, když je k odpovědi potřebuje. Hledání zajišťuje OpenRouter a každé stojí zhruba cent navíc k ceně modelu.",
-          "tts_voice": "Hlasy závisí na modelu pro převod textu na řeč. Po změně modelu nastavení uložte a otevřete znovu, zobrazí se jeho hlasy."
+          "tts_voice": "Hlasy závisí na modelu pro převod textu na řeč. Po změně modelu nastavení uložte a otevřete znovu, zobrazí se jeho hlasy.",
+          "tts_format": "MP3 funguje s každým zařízením. PCM je nekomprimovaný, začne hrát dřív a některé modely jiný formát nenabízejí.",
+          "tts_sample_rate": "Použije se jen u PCM, který neříká, jak rychle se má přehrávat. Většina modelů používá 24000 Hz; změňte ji, pokud hlas zní moc rychle nebo moc pomalu."
         }
       }
     }

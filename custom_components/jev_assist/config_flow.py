@@ -34,14 +34,18 @@ from .const import (
     CONF_CONFIDENCE,
     CONF_DECISION_MODEL,
     CONF_STT_MODEL,
+    CONF_TTS_FORMAT,
     CONF_TTS_MODEL,
+    CONF_TTS_SAMPLE_RATE,
     CONF_TTS_VOICE,
     CONF_WEB_SEARCH,
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONFIDENCE,
     DEFAULT_DECISION_MODEL,
     DEFAULT_STT_MODEL,
+    DEFAULT_TTS_FORMAT,
     DEFAULT_TTS_MODEL,
+    DEFAULT_TTS_SAMPLE_RATE,
     DEFAULT_TTS_VOICE,
     DEFAULT_WEB_SEARCH,
     DOMAIN,
@@ -55,6 +59,8 @@ DEFAULT_OPTIONS = {
     CONF_STT_MODEL: DEFAULT_STT_MODEL,
     CONF_TTS_MODEL: DEFAULT_TTS_MODEL,
     CONF_TTS_VOICE: DEFAULT_TTS_VOICE,
+    CONF_TTS_FORMAT: DEFAULT_TTS_FORMAT,
+    CONF_TTS_SAMPLE_RATE: DEFAULT_TTS_SAMPLE_RATE,
     CONF_CONFIDENCE: DEFAULT_CONFIDENCE,
     CONF_LLM_HASS_API: [llm.LLM_API_ASSIST],
     CONF_WEB_SEARCH: DEFAULT_WEB_SEARCH,
@@ -197,6 +203,24 @@ class JevAssistOptionsFlow(OptionsFlowWithReload):
                 ),
                 probatio.Required(CONF_TTS_VOICE): _model_selector(
                     voices, options[CONF_TTS_VOICE]
+                ),
+                probatio.Required(CONF_TTS_FORMAT): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            SelectOptionDict(label="MP3", value="mp3"),
+                            SelectOptionDict(label="PCM", value="pcm"),
+                        ],
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                probatio.Required(CONF_TTS_SAMPLE_RATE): NumberSelector(
+                    NumberSelectorConfig(
+                        min=8000,
+                        max=48000,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
+                        unit_of_measurement="Hz",
+                    )
                 ),
             }
         )
