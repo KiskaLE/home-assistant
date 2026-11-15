@@ -4,7 +4,6 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncGenerator
-from difflib import SequenceMatcher
 from typing import Any, Literal
 
 import probatio
@@ -55,7 +54,6 @@ from .decision import (
     interpret,
 )
 from .entity import JevAssistEntity
-from .tts import async_prepare_speech
 
 _SPLIT_PROMPT = (
     "Split the user's smart home request into separate commands, one action"
@@ -63,14 +61,13 @@ _SPLIT_PROMPT = (
     " language. Reply with only a JSON array of strings."
 )
 
-# Appended to the LLM instructions. Home Assistant keeps the microphone open,
-# without the wake word, after a reply that ends with a question.
-_FOLLOW_UP_PROMPT = (
+# Appended to the LLM instructions. The microphone is not kept open for the
+# answer, see `_closed`, so the user answers after the wake word.
+_ASK_PROMPT = (
     "If the request is ambiguous or something you need is missing, such as"
     " which device, which room or what value, do not guess. Ask one short"
-    " question and put it at the very end of your reply, ending with a"
-    " question mark: the microphone then stays open and the user can answer"
-    " without saying the wake word.\n"
+    " question at the very end of your reply; the user answers it in their"
+    " next request.\n"
     "End a reply with a question only when you need the answer. Never add"
     ' offers of further help such as "Anything else?".'
 )
@@ -104,29 +101,22 @@ _SERVER_TOOL_PREFIX = "openrouter:"
 _ENDS_WITH_QUESTION = re.compile(r"[?;\u037e\uff1f]\W*\Z")
 
 
-# How much of a question has to come back, in words and as a share of it,
-# before the "answer" counts as the question itself.
-_ECHO_MIN_WORDS = 4
-_ECHO_SHARE = 0.75
-
-
 def _expects_answer(text: str | None) -> bool:
     """Return whether a reply ends with a question for the user."""
     return bool(text and _ENDS_WITH_QUESTION.search(text))
 
 
-def _is_echo(text: str, question: str | None) -> bool:
-    """Return whether an answer is the assistant's own question played back.
+def _closed(result: conversation.ConversationResult) -> conversation.ConversationResult:
+    """Return the result with the microphone left closed after the reply.
 
-    A satellite that opens its microphone while the question is still playing
-    records the question. Answering it would start a conversation of the
-    assistant with itself that never ends.
+    Home Assistant would keep it open, without the wake word, after a reply
+    that ends with a question. A satellite that opens it before the reply has
+    finished playing records the question and the assistant then answers
+    itself, over and over. Home Assistant Voice does that whenever the audio
+    takes more than two seconds to start.
     """
-    heard = re.findall(r"\w+", text.casefold())
-    asked = re.findall(r"\w+", (question or "").casefold())
-    blocks = SequenceMatcher(None, heard, asked, autojunk=False).get_matching_blocks()
-    repeated = sum(block.size for block in blocks)
-    return repeated >= max(_ECHO_MIN_WORDS, _ECHO_SHARE * len(asked))
+    result.continue_conversation = False
+    return result
 
 
 def _is_silent(text: str | None) -> bool:
@@ -229,9 +219,9 @@ def _to_message(content: conversation.Content) -> dict[str, Any] | None:
     }
 
 
-def _to_delta(
+async def _to_delta(
     message: dict[str, Any], can_call_tools: bool
-) -> conversation.AssistantContentDeltaDict:
+) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
     """Convert a chat completions message to a chat log delta.
 
     Only calls Home Assistant can run are kept. OpenRouter has already run its
@@ -269,12 +259,6 @@ def _to_delta(
         # Home Assistant reports an error for a reply with nothing in it, and
         # a model told to keep quiet may well send exactly that.
         delta["content"] = _SILENT_REPLY
-    return delta
-
-
-async def _as_stream(
-    delta: conversation.AssistantContentDeltaDict,
-) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
     yield delta
 
 
@@ -302,17 +286,11 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
         # An answer to a question only makes sense together with the question.
         # Jev judges a request on its own, so the LLM, which sees the whole
         # conversation, takes the answer.
-        if _answers_question(chat_log):
-            if _is_echo(user_input.text, chat_log.content[-2].content):
-                LOGGER.warning(
-                    "Ignoring %r: the satellite recorded the assistant's own"
-                    " question instead of an answer",
-                    user_input.text,
-                )
-                return self._silent_result(user_input, chat_log)
-            plans = None
-        else:
-            plans = await self._async_fast_path(user_input.text)
+        plans = (
+            None
+            if _answers_question(chat_log)
+            else await self._async_fast_path(user_input.text)
+        )
         if plans is None:
             return await self._async_run_llm(user_input, chat_log)
 
@@ -337,17 +315,7 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
 
         # A command that worked needs no confirmation. When a part failed, the
         # whole outcome is spoken so it is clear what did happen.
-        return self._silent_result(
-            user_input, chat_log, " ".join(replies) if failed else ""
-        )
-
-    def _silent_result(
-        self,
-        user_input: conversation.ConversationInput,
-        chat_log: conversation.ChatLog,
-        speech: str = "",
-    ) -> conversation.ConversationResult:
-        """End the turn without the LLM, saying `speech` or nothing at all."""
+        speech = " ".join(replies) if failed else ""
         chat_log.async_add_assistant_content_without_tools(
             conversation.AssistantContent(
                 agent_id=user_input.agent_id, content=speech or _SILENT_REPLY
@@ -355,51 +323,7 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
         )
         result = conversation.async_get_result_from_chat_log(user_input, chat_log)
         result.response.async_set_speech(speech)
-        return result
-
-    def _satellite_voice(
-        self, user_input: conversation.ConversationInput
-    ) -> tuple[bool, str | None]:
-        """Return whether a satellite will speak the reply with Jev, and the voice."""
-        if not (user_input.satellite_id or user_input.device_id):
-            return False, None
-        if "assist_pipeline" not in self.hass.config.components:
-            return False, None
-        # Loaded here because Home Assistant can run without voice pipelines.
-        from homeassistant.components import assist_pipeline
-
-        tts_entity_id = er.async_get(self.hass).async_get_entity_id(
-            "tts", DOMAIN, f"{self.entry.entry_id}_tts"
-        )
-        voices = {
-            pipeline.tts_voice
-            for pipeline in assist_pipeline.async_get_pipelines(self.hass)
-            if pipeline.conversation_engine == self.entity_id
-            and pipeline.tts_engine == tts_entity_id
-        }
-        # With several voices in use there is no telling which one this is.
-        return (True, voices.pop()) if len(voices) == 1 else (False, None)
-
-    async def _async_prepare_question(
-        self, user_input: conversation.ConversationInput, question: str
-    ) -> None:
-        """Synthesize a question before the satellite hears about it.
-
-        A satellite is told about a reply before the audio exists, and after a
-        question it opens the microphone once the reply has played. Home
-        Assistant Voice gives the audio two seconds to start; after that it
-        takes the question for played, opens the microphone and records the
-        question when it does arrive. With the audio ready beforehand, those
-        two seconds are no longer spent on synthesizing it.
-        """
-        speaks, voice = self._satellite_voice(user_input)
-        if not speaks:
-            return
-        try:
-            await async_prepare_speech(self.entry, question, voice)
-        except OpenRouterError as err:
-            # The reply is then synthesized when it is asked for, as usual.
-            LOGGER.warning("Could not prepare the speech in advance: %s", err)
+        return _closed(result)
 
     async def _async_decide(
         self, text: str, entities: list[EntityInfo], allow_split: bool
@@ -476,7 +400,7 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
         web_search = options.get(CONF_WEB_SEARCH, DEFAULT_WEB_SEARCH)
         instructions = [
             (options.get(CONF_PROMPT) or llm.DEFAULT_INSTRUCTIONS_PROMPT).rstrip(),
-            _FOLLOW_UP_PROMPT,
+            _ASK_PROMPT,
             _SILENT_PROMPT,
         ]
         if web_search:
@@ -504,16 +428,11 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
 
         for _ in range(MAX_TOOL_ITERATIONS):
             message = await self.client.chat(model, messages, tools)
-            delta = _to_delta(message, chat_log.llm_api is not None)
-            reply = delta["content"]
-            # Adding the reply to the chat log is what announces it.
-            if not _is_silent(reply) and _expects_answer(reply):
-                await self._async_prepare_question(user_input, reply)
             messages.extend(
                 [
                     m
                     async for content in chat_log.async_add_delta_content_stream(
-                        self.entity_id, _as_stream(delta)
+                        self.entity_id, _to_delta(message, chat_log.llm_api is not None)
                     )
                     if (m := _to_message(content))
                 ]
@@ -522,12 +441,6 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
                 break
 
         result = conversation.async_get_result_from_chat_log(user_input, chat_log)
-        reply = chat_log.content[-1].content
-        if _is_silent(reply):
+        if _is_silent(chat_log.content[-1].content):
             result.response.async_set_speech("")
-            result.continue_conversation = False
-            return result
-        # Home Assistant only looks at the very last character; also keep
-        # listening when the question is followed by a quote, formatting or emoji.
-        result.continue_conversation = _expects_answer(reply)
-        return result
+        return _closed(result)

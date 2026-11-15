@@ -2,10 +2,8 @@
 
 import asyncio
 import io
-import sys
 import wave
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.components import conversation, stt, tts
@@ -25,37 +23,12 @@ from custom_components.jev_assist.const import DOMAIN
 from .test_decision import answers, choice, noul
 
 AGENT = "conversation.jev_assist"
-TTS = "tts.jev_assist_text_to_speech"
 
 
-async def _converse(hass, text, language="en", conversation_id=None, device_id=None):
+async def _converse(hass, text, language="en", conversation_id=None):
     return await conversation.async_converse(
-        hass,
-        text,
-        conversation_id,
-        Context(),
-        language=language,
-        agent_id=AGENT,
-        device_id=device_id,
+        hass, text, conversation_id, Context(), language=language, agent_id=AGENT
     )
-
-
-def _speak(client, speak):
-    """Make the mocked client synthesize speech with `speak`."""
-    client.speak = MagicMock(side_effect=speak)
-
-
-@pytest.fixture
-def pipelines(hass):
-    """Stand in for the voice pipelines, which need packages the tests lack."""
-    found = [SimpleNamespace(conversation_engine=AGENT, tts_engine=TTS, tts_voice=None)]
-    module = SimpleNamespace(async_get_pipelines=lambda hass: found)
-    hass.config.components.add("assist_pipeline")
-    with (
-        patch.dict(sys.modules, {"homeassistant.components.assist_pipeline": module}),
-        patch("homeassistant.components.assist_pipeline", module, create=True),
-    ):
-        yield found
 
 
 async def test_config_flow(hass, client):
@@ -335,9 +308,10 @@ async def test_answer_to_a_question_goes_to_the_llm_with_the_question(
 
     result = await _converse(hass, "turn on the light")
 
-    # The question keeps the microphone open, so no wake word is needed.
-    assert result.continue_conversation
-    assert "question mark" in client.chat.call_args.args[1][0]["content"]
+    # The user answers after the wake word; the microphone is not kept open.
+    assert result.response.speech["plain"]["speech"] == "Which light?"
+    assert not result.continue_conversation
+    assert "Ask one short question" in client.chat.call_args.args[1][0]["content"]
 
     # On its own Jev would read the answer as a clear command.
     client.decide.reset_mock()
@@ -368,135 +342,39 @@ async def test_answer_to_a_question_goes_to_the_llm_with_the_question(
 
 
 @pytest.mark.parametrize(
-    ("heard", "echo"),
+    "reply",
     [
-        # The whole question, as a microphone that was open too early hears it.
-        ("Which light do you mean, the kitchen or the bedroom one?", True),
-        ("which light do you mean the kitchen or the bedroom", True),
-        ("light do you mean the kitchen or the bedroom one", True),
-        # Answers may well repeat a part of the question.
-        ("the kitchen one", False),
-        ("the kitchen or the bedroom one, both", False),
-        ("I mean the bedroom one", False),
+        "Which light do you mean?",
+        "Did you mean the **kitchen light?**",
+        "Kterou myslíte, „kuchyň“ nebo „ložnici“? 🙂",
+        "Done.",
     ],
 )
-async def test_own_question_played_back_is_not_answered(
-    hass, entry, client, heard, echo
-):
-    question = "Which light do you mean, the kitchen or the bedroom one?"
-    client.chat.return_value = {"role": "assistant", "content": question}
-    result = await _converse(hass, "turn on the light")
-    client.chat.reset_mock()
-    client.chat.return_value = {"role": "assistant", "content": "And which one?"}
-
-    result = await _converse(hass, heard, conversation_id=result.conversation_id)
-
-    assert client.chat.called is not echo
-    assert result.continue_conversation is not echo
-    assert result.response.speech["plain"]["speech"] == (
-        "" if echo else "And which one?"
-    )
-
-
-async def test_question_is_synthesized_before_a_satellite_hears_of_it(
-    hass, entry, client, pipelines
-):
-    events = []
-
-    async def speak(model, voice, audio_format, text):
-        events.append(("synthesized", text))
-        yield b"ID3audio"
-
-    _speak(client, speak)
-    client.chat.return_value = {"role": "assistant", "content": "Which light?"}
-
-    def listener(chat_log, delta):
-        if delta.get("content"):
-            events.append(("announced", delta["content"]))
-
-    with (
-        chat_session.async_get_chat_session(hass) as session,
-        conversation.async_get_chat_log(
-            hass, session, chat_log_delta_listener=listener
-        ),
-    ):
-        await _converse(
-            hass,
-            "turn on the light",
-            conversation_id=session.conversation_id,
-            device_id="voice-pe",
-        )
-
-    assert events == [("synthesized", "Which light?"), ("announced", "Which light?")]
-
-    # The satellite then gets that audio at once, without a second request.
-    async def message():
-        yield "Which light?"
-
-    stream = tts.async_create_stream(hass, TTS)
-    stream.async_set_message_stream(message())
-    assert [chunk async for chunk in stream.async_stream_result()] == [b"ID3audio"]
-    assert client.speak.call_count == 1
-
-
-@pytest.mark.parametrize(
-    ("reply", "device_id", "pipeline"),
-    [
-        # Only a question opens the microphone after it has played.
-        ("It is noon.", "voice-pe", {}),
-        # A text chat is never spoken.
-        ("Which light?", None, {}),
-        # Another engine speaks for this satellite.
-        ("Which light?", "voice-pe", {"tts_engine": "tts.piper"}),
-        ("Which light?", "voice-pe", {"conversation_engine": "conversation.other"}),
-    ],
-)
-async def test_speech_is_only_prepared_when_it_will_be_used(
-    hass, entry, client, pipelines, reply, device_id, pipeline
-):
-    vars(pipelines[0]).update(pipeline)
-    _speak(client, None)
-    client.chat.return_value = {"role": "assistant", "content": reply}
-
-    await _converse(hass, "hello", device_id=device_id)
-
-    client.speak.assert_not_called()
-
-
-async def test_question_is_asked_even_when_preparing_the_speech_fails(
-    hass, entry, client, pipelines
-):
-    async def speak(model, voice, audio_format, text):
-        raise OpenRouterError("down")
-        yield
-
-    _speak(client, speak)
-    client.chat.return_value = {"role": "assistant", "content": "Which light?"}
-
-    result = await _converse(hass, "turn on the light", device_id="voice-pe")
-
-    assert result.response.speech["plain"]["speech"] == "Which light?"
-    assert result.continue_conversation
-
-
-@pytest.mark.parametrize(
-    ("reply", "expected"),
-    [
-        ("Which light do you mean?", True),
-        ("Did you mean the **kitchen light?**", True),
-        ("Kterou myslíte, „kuchyň“ nebo „ložnici“? 🙂", True),
-        ("Which one? Tell me the room.", False),
-        ("Done.", False),
-    ],
-)
-async def test_only_a_closing_question_keeps_listening(
-    hass, entry, client, reply, expected
-):
+async def test_microphone_is_never_kept_open(hass, entry, client, reply):
     client.chat.return_value = {"role": "assistant", "content": reply}
 
     result = await _converse(hass, "hello")
 
-    assert result.continue_conversation is expected
+    assert result.response.speech["plain"]["speech"] == reply
+    assert not result.continue_conversation
+
+
+async def test_microphone_stays_closed_when_a_failed_command_ends_with_a_question(
+    hass, entry, client
+):
+    hass.states.async_set("light.kitchen", "off", {"friendly_name": "Kitchen light"})
+    hass.states.async_set("light.bedroom", "off", {"friendly_name": "Bedroom light"})
+
+    async def broken(call):
+        raise HomeAssistantError("Is the bridge plugged in?")
+
+    hass.services.async_register("light", "turn_on", broken)
+    client.decide.return_value = answers()
+
+    result = await _converse(hass, "turn on the kitchen light")
+
+    assert result.response.speech["plain"]["speech"].endswith("?")
+    assert not result.continue_conversation
 
 
 async def test_stt_wraps_pcm_in_wav(hass, entry, client):
@@ -523,13 +401,18 @@ async def test_stt_wraps_pcm_in_wav(hass, entry, client):
     assert audio.startswith(b"RIFF") and audio.endswith(b"\x00\x01" * 100)
 
 
+def _speak(client, speak):
+    """Make the mocked client synthesize speech with `speak`."""
+    client.speak = MagicMock(side_effect=speak)
+
+
 async def test_tts_returns_mp3_with_configured_voice(hass, entry, client):
-    async def speak(model, voice, audio_format, text):
+    async def speak(model, text, voice, audio_format):
         yield b"ID3"
         yield b"audio"
 
     _speak(client, speak)
-    entity = hass.data[tts.DATA_COMPONENT].get_entity(TTS)
+    entity = hass.data[tts.DATA_COMPONENT].get_entity("tts.jev_assist_text_to_speech")
 
     async def message():
         yield "Ah"
@@ -546,9 +429,9 @@ async def test_tts_returns_mp3_with_configured_voice(hass, entry, client):
     assert [chunk async for chunk in response.data_gen] == [b"ID3", b"audio"]
     assert client.speak.call_args.args == (
         "elevenlabs/eleven-flash-v2.5",
+        "Ahoj",
         "sarah",
         "mp3",
-        "Ahoj",
     )
 
 
@@ -559,12 +442,12 @@ async def test_tts_wraps_pcm_in_a_wav_stream(hass, entry, client):
     )
     await hass.async_block_till_done()
 
-    async def speak(model, voice, audio_format, text):
+    async def speak(model, text, voice, audio_format):
         yield b"\x01\x00\x02"
         yield b"\x00"
 
     _speak(client, speak)
-    entity = hass.data[tts.DATA_COMPONENT].get_entity(TTS)
+    entity = hass.data[tts.DATA_COMPONENT].get_entity("tts.jev_assist_text_to_speech")
 
     async def message():
         yield "Ahoj"
@@ -575,7 +458,7 @@ async def test_tts_wraps_pcm_in_a_wav_stream(hass, entry, client):
     header, *samples = [chunk async for chunk in response.data_gen]
 
     assert response.extension == "wav"
-    assert client.speak.call_args.args[2] == "pcm"
+    assert client.speak.call_args.args[3] == "pcm"
     assert samples == [b"\x01\x00\x02", b"\x00"]
     # A length that is not known yet is written as the largest possible one,
     # which the standard library takes at its word, so it gets a real one here.
@@ -595,7 +478,7 @@ async def test_tts_audio_plays_before_the_whole_reply_is_synthesized(
 ):
     rest = asyncio.Event()
 
-    async def speak(model, voice, audio_format, text):
+    async def speak(model, text, voice, audio_format):
         yield b"ID3"
         await rest.wait()
         yield b"audio"
@@ -604,7 +487,7 @@ async def test_tts_audio_plays_before_the_whole_reply_is_synthesized(
         yield "Which light do you mean?"
 
     _speak(client, speak)
-    stream = tts.async_create_stream(hass, TTS)
+    stream = tts.async_create_stream(hass, "tts.jev_assist_text_to_speech")
     # A reply set as a stream is not cached, so nothing is written to disk.
     stream.async_set_message_stream(message())
     audio = stream.async_stream_result()

@@ -20,8 +20,6 @@ class JevAssistData:
 
     client: OpenRouterClient
     voices: list[str] = field(default_factory=list)
-    # Audio of a reply synthesized ahead of time, with what it was made from.
-    prepared_speech: tuple[tuple[str, ...], bytes] | None = None
 
 
 type JevAssistConfigEntry = ConfigEntry[JevAssistData]

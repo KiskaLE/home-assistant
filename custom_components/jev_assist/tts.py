@@ -63,29 +63,6 @@ async def async_setup_entry(
     async_add_entities([JevTTSEntity(entry)])
 
 
-def _speech_key(
-    entry: JevAssistConfigEntry, message: str, voice: str | None
-) -> tuple[str, str, str, str]:
-    """Return the model, voice, format and text that make up a piece of speech."""
-    options = entry.options
-    return (
-        options.get(CONF_TTS_MODEL, DEFAULT_TTS_MODEL),
-        voice or options.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE),
-        options.get(CONF_TTS_FORMAT, DEFAULT_TTS_FORMAT),
-        message.strip(),
-    )
-
-
-async def async_prepare_speech(
-    entry: JevAssistConfigEntry, message: str, voice: str | None
-) -> None:
-    """Synthesize a reply now, so it plays the moment it is asked for."""
-    key = _speech_key(entry, message, voice)
-    data = entry.runtime_data
-    speech = b"".join([chunk async for chunk in data.client.speak(*key)])
-    data.prepared_speech = (key, speech)
-
-
 class JevTTSEntity(JevAssistEntity, TextToSpeechEntity):
     """Speaks Assist replies with an OpenRouter speech model."""
 
@@ -115,30 +92,23 @@ class JevTTSEntity(JevAssistEntity, TextToSpeechEntity):
     ) -> TTSAudioResponse:
         """Synthesize the message and pass the audio on as it arrives.
 
-        A voice satellite only waits so long for a reply to start playing. If
-        the audio comes later than that, the satellite takes the reply for
-        finished, opens the microphone for the answer to a question and then
-        records the reply itself. Sending the first bytes without waiting for
-        the whole reply keeps that delay short however long the reply is.
+        Sending the first bytes without waiting for the whole reply keeps the
+        delay before a satellite starts playing short however long the reply is.
         """
+        voice = request.options.get(ATTR_VOICE) or self.default_options[ATTR_VOICE]
         options = self.entry.options
-        data = self.entry.runtime_data
-        is_pcm = options.get(CONF_TTS_FORMAT, DEFAULT_TTS_FORMAT) == "pcm"
+        model = options.get(CONF_TTS_MODEL, DEFAULT_TTS_MODEL)
+        audio_format = options.get(CONF_TTS_FORMAT, DEFAULT_TTS_FORMAT)
+        is_pcm = audio_format == "pcm"
 
         async def audio() -> AsyncGenerator[bytes]:
             message = "".join([part async for part in request.message_gen])
-            key = _speech_key(self.entry, message, request.options.get(ATTR_VOICE))
             if is_pcm:
                 # Bare samples cannot be played; a WAV header says what they are.
                 yield _wav_header(
                     int(options.get(CONF_TTS_SAMPLE_RATE, DEFAULT_TTS_SAMPLE_RATE))
                 )
-            if data.prepared_speech and data.prepared_speech[0] == key:
-                _, speech = data.prepared_speech
-                data.prepared_speech = None
-                yield speech
-                return
-            async for chunk in self.client.speak(*key):
+            async for chunk in self.client.speak(model, message, voice, audio_format):
                 yield chunk
 
         return TTSAudioResponse("wav" if is_pcm else "mp3", audio())
