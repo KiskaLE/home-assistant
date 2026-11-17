@@ -20,6 +20,9 @@ CONF_TTS_FORMAT = "tts_format"
 CONF_TTS_SAMPLE_RATE = "tts_sample_rate"
 CONF_CONFIDENCE = "confidence_threshold"
 CONF_WEB_SEARCH = "web_search"
+CONF_MEMORY = "memory"
+# Shown and edited in the options, but kept in storage rather than the options.
+CONF_MEMORIES = "memories"
 
 DEFAULT_DECISION_MODEL = "~typesafe/jev-latest"
 DEFAULT_CHAT_MODEL = "~anthropic/claude-haiku-latest"
@@ -32,6 +35,11 @@ DEFAULT_TTS_FORMAT = "mp3"
 DEFAULT_TTS_SAMPLE_RATE = 24000
 DEFAULT_CONFIDENCE = 0.7
 DEFAULT_WEB_SEARCH = True
+DEFAULT_MEMORY = False
+
+# Everything remembered goes into every LLM request, so it has to stay small.
+MAX_MEMORIES = 50
+MAX_MEMORY_LENGTH = 300
 
 # Actions that are hard to undo need a stricter threshold before Jev may act
 # without the LLM (see TypeSafe's "routing by confidence" pattern).

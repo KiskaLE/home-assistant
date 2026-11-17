@@ -27,6 +27,8 @@
           "chat_model": "Konverzační model (LLM)",
           "llm_hass_api": "Ovládání Home Assistanta pro LLM",
           "web_search": "Hledání na internetu",
+          "memory": "Paměť",
+          "memories": "Co si asistent pamatuje",
           "prompt": "Instrukce pro LLM",
           "stt_model": "Model pro převod řeči na text",
           "tts_model": "Model pro převod textu na řeč",
@@ -39,6 +41,8 @@
           "confidence_threshold": "Při nižší jistotě jde požadavek do LLM. Odemykání a otevírání vždy vyžadují alespoň 0,9.",
           "chat_model": "Řeší konverzaci, dotazy a vše, čím si rozhodovací model není jistý. Musí podporovat volání nástrojů.",
           "web_search": "LLM si sám vyhledá aktuální informace, když je k odpovědi potřebuje. Hledání zajišťuje OpenRouter a každé stojí zhruba cent navíc k ceně modelu.",
+          "memory": "Asistent si pamatuje i mezi rozhovory, co si zapamatovat řeknete, a co se dozví o vás, domácnosti a vašich zvyklostech. Řekněte mu, ať něco zapomene, nebo to smažte níže. Po vypnutí si nic nového neukládá a uložené nepoužívá, ale nesmaže je.",
+          "memories": "Jedna informace na řádek. Můžete je upravit, přidat nebo smazat.",
           "tts_voice": "Hlasy závisí na modelu pro převod textu na řeč. Po změně modelu nastavení uložte a otevřete znovu, zobrazí se jeho hlasy.",
           "tts_format": "MP3 funguje s každým zařízením. PCM je nekomprimovaný, začne hrát dřív a některé modely jiný formát nenabízejí.",
           "tts_sample_rate": "Použije se jen u PCM, který neříká, jak rychle se má přehrávat. Většina modelů používá 24000 Hz; změňte ji, pokud hlas zní moc rychle nebo moc pomalu."

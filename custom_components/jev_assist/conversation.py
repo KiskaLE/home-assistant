@@ -22,6 +22,7 @@ from homeassistant.helpers import (
     entity_registry as er,
 )
 from homeassistant.helpers import (
+    intent,
     llm,
 )
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -33,10 +34,12 @@ from .const import (
     CONF_CHAT_MODEL,
     CONF_CONFIDENCE,
     CONF_DECISION_MODEL,
+    CONF_MEMORY,
     CONF_WEB_SEARCH,
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONFIDENCE,
     DEFAULT_DECISION_MODEL,
+    DEFAULT_MEMORY,
     DEFAULT_WEB_SEARCH,
     DOMAIN,
     LOGGER,
@@ -330,7 +333,9 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
     ) -> Plan:
         """Send one request with every question to Jev and interpret it."""
         options = self.entry.options
-        state, questions = build_request(text, entities)
+        state, questions = build_request(
+            text, entities, options.get(CONF_MEMORY, DEFAULT_MEMORY)
+        )
         answers = await self.client.decide(
             options.get(CONF_DECISION_MODEL, DEFAULT_DECISION_MODEL), state, questions
         )
@@ -405,15 +410,30 @@ class JevConversationEntity(JevAssistEntity, conversation.ConversationEntity):
         ]
         if web_search:
             instructions.append(_WEB_SEARCH_PROMPT)
+        hass_apis: list[str] = options.get(CONF_LLM_HASS_API) or []
+        llm_api: list[str] | llm.API | None = hass_apis or None
+        if options.get(CONF_MEMORY, DEFAULT_MEMORY):
+            llm_api = self.entry.runtime_data.memory.llm_api(hass_apis)
         try:
             await chat_log.async_provide_llm_data(
                 user_input.as_llm_context(DOMAIN),
-                options.get(CONF_LLM_HASS_API) or None,
+                llm_api,
                 "\n".join(instructions),
                 user_input.extra_system_prompt,
             )
         except conversation.ConverseError as err:
             return err.as_conversation_result()
+        except HomeAssistantError as err:
+            # Home Assistant answers like this itself when a chosen API is
+            # missing, but not when the memory looks the APIs up for it.
+            LOGGER.error("Error preparing the LLM API: %s", err)
+            response = intent.IntentResponse(language=user_input.language)
+            response.async_set_error(
+                intent.IntentResponseErrorCode.UNKNOWN, "Error preparing LLM API"
+            )
+            return conversation.ConversationResult(
+                response=response, conversation_id=chat_log.conversation_id
+            )
 
         tools: list[dict[str, Any]] = []
         if chat_log.llm_api:

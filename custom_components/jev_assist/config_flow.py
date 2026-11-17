@@ -5,6 +5,7 @@ from typing import Any
 import probatio
 from homeassistant.config_entries import (
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlowWithReload,
@@ -33,6 +34,8 @@ from .const import (
     CONF_CHAT_MODEL,
     CONF_CONFIDENCE,
     CONF_DECISION_MODEL,
+    CONF_MEMORIES,
+    CONF_MEMORY,
     CONF_STT_MODEL,
     CONF_TTS_FORMAT,
     CONF_TTS_MODEL,
@@ -42,6 +45,7 @@ from .const import (
     DEFAULT_CHAT_MODEL,
     DEFAULT_CONFIDENCE,
     DEFAULT_DECISION_MODEL,
+    DEFAULT_MEMORY,
     DEFAULT_STT_MODEL,
     DEFAULT_TTS_FORMAT,
     DEFAULT_TTS_MODEL,
@@ -52,6 +56,7 @@ from .const import (
     KEYS_URL,
     LOGGER,
 )
+from .memory import Memory
 
 DEFAULT_OPTIONS = {
     CONF_DECISION_MODEL: DEFAULT_DECISION_MODEL,
@@ -64,6 +69,7 @@ DEFAULT_OPTIONS = {
     CONF_CONFIDENCE: DEFAULT_CONFIDENCE,
     CONF_LLM_HASS_API: [llm.LLM_API_ASSIST],
     CONF_WEB_SEARCH: DEFAULT_WEB_SEARCH,
+    CONF_MEMORY: DEFAULT_MEMORY,
 }
 
 
@@ -127,6 +133,16 @@ def _model_selector(models: list[str], current: str) -> SelectSelector:
 class JevAssistOptionsFlow(OptionsFlowWithReload):
     """Choose the models, the voice and the assistant behaviour."""
 
+    _memories_shown = ""
+
+    async def _async_memory(self) -> Memory:
+        """Return the memory the assistant uses, or the saved one when not loaded."""
+        if self.config_entry.state is ConfigEntryState.LOADED:
+            return self.config_entry.runtime_data.memory
+        memory = Memory(self.hass, self.config_entry.entry_id)
+        await memory.async_load()
+        return memory
+
     async def _async_models(self) -> dict[str, list[dict]]:
         """Load the live model catalog; an empty list still allows typing an id."""
         client = OpenRouterClient(
@@ -150,12 +166,23 @@ class JevAssistOptionsFlow(OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        memory = await self._async_memory()
         if user_input is not None:
             if not user_input.get(CONF_LLM_HASS_API):
                 user_input.pop(CONF_LLM_HASS_API, None)
+            # Saved only when edited, so a fact the assistant remembered while
+            # the form was open is not lost.
+            memories = user_input.pop(CONF_MEMORIES, "")
+            if memories != self._memories_shown:
+                await memory.async_set(memories.splitlines())
             return self.async_create_entry(data=user_input)
 
-        options = {**DEFAULT_OPTIONS, **self.config_entry.options}
+        self._memories_shown = "\n".join(memory.facts)
+        options = {
+            **DEFAULT_OPTIONS,
+            **self.config_entry.options,
+            CONF_MEMORIES: self._memories_shown,
+        }
         catalog = await self._async_models()
         ids = {key: [m["id"] for m in models] for key, models in catalog.items()}
         # The fallback LLM needs tool calling to control Home Assistant.
@@ -194,6 +221,10 @@ class JevAssistOptionsFlow(OptionsFlowWithReload):
                     SelectSelectorConfig(options=hass_apis, multiple=True)
                 ),
                 probatio.Required(CONF_WEB_SEARCH): BooleanSelector(),
+                probatio.Required(CONF_MEMORY): BooleanSelector(),
+                probatio.Optional(CONF_MEMORIES): TextSelector(
+                    TextSelectorConfig(multiline=True)
+                ),
                 probatio.Optional(CONF_PROMPT): TemplateSelector(),
                 probatio.Required(CONF_STT_MODEL): _model_selector(
                     ids["stt"], options[CONF_STT_MODEL]

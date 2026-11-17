@@ -49,6 +49,20 @@ def test_build_request_fans_out_one_action_question_per_device_type():
     assert questions["compound"]["type"] == "noul"
 
 
+def test_memory_question_is_only_asked_with_the_memory_on():
+    _, questions = build_request("remember I like it warm", ENTITIES)
+    assert "memory" not in questions
+    _, questions = build_request("remember I like it warm", ENTITIES, memory=True)
+    assert questions["memory"]["type"] == "noul"
+
+
+def test_request_about_the_memory_goes_to_llm_whole():
+    text = "remember I want 22 degrees and turn on the kitchen light"
+    about_memory = answers(memory=noul(0.9), compound=noul(0.95))
+    assert interpret(text, ENTITIES, about_memory, 0.7).kind == "llm"
+    assert interpret(text, ENTITIES, answers(memory=noul(0.1)), 0.7).kind == "execute"
+
+
 def test_single_option_questions_are_left_out():
     _, questions = build_request("on", ENTITIES[:1])
     assert "device" not in questions

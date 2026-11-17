@@ -178,9 +178,13 @@ def _describe(entity: EntityInfo) -> str:
 
 
 def build_request(
-    text: str, entities: list[EntityInfo]
+    text: str, entities: list[EntityInfo], memory: bool = False
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
-    """Build the `state` and the full question fan-out for one user request."""
+    """Build the `state` and the full question fan-out for one user request.
+
+    With `memory`, Jev is also asked whether the request is about the memory,
+    which only the LLM can use.
+    """
     areas = sorted({e.area for e in entities if e.area})
     domains = sorted({e.domain for e in entities})
 
@@ -237,6 +241,13 @@ def build_request(
             },
         ),
     }
+    if memory:
+        # "Remember that I want 22 degrees in the bedroom" names a device, a
+        # room and a value, but asks for none of it to happen now.
+        questions["memory"] = _noul(
+            "`request` asks the assistant to remember or forget something,"
+            " rather than to do it now."
+        )
     # Choice questions need at least two options; a single option is implied.
     if len(entities) > 1:
         questions["device"] = _choice(
@@ -306,6 +317,10 @@ def interpret(
     allow_split: bool = True,
 ) -> Plan:
     """Turn Jev's answers into a plan. All thresholds and rules live here."""
+    # Before splitting, so the LLM gets the whole request, which may also say
+    # what to do now.
+    if _yes(answers, "memory"):
+        return Plan("llm", "request is about the memory")
     if allow_split and _yes(answers, "compound"):
         return Plan("split", "request asks for more than one action")
 

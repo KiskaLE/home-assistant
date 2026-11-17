@@ -48,6 +48,13 @@ Jev dělá úzké úsudky, kód podle nich jedná.
 6. Povedený povel asistent nepotvrzuje: světlo se rozsvítí a tím to končí.
    Promluví, jen když má co říct, tedy když odpovídá na dotaz, na něco se ptá,
    nebo když se něco nepovedlo či dopadlo jinak, než jste chtěli.
+7. Se zapnutou pamětí si LLM pamatuje i mezi rozhovory, co mu řeknete, ať si
+   zapamatuje („zapamatuj si, že v ložnici chci 22 stupňů“), a co se dozví
+   o vás, domácnosti a vašich zvyklostech. Zapamatované informace dostává
+   v každém dotazu; Jev je nevidí, jen požadavky na zapamatování nebo
+   zapomenutí pošle LLM, aby je neprovedl jako povel. Paměť se ukládá
+   v Home Assistantovi a pojme 50 krátkých informací. Ve výchozím stavu je
+   vypnutá.
 
 Jev umí ovládat světla, vypínače, ventilátory, rolety a vrata, topení, zámky,
 přehrávače, vysavače, scény a skripty. Vidí nejvýš 250 zpřístupněných entit.
@@ -69,9 +76,14 @@ Je potřeba Home Assistant 2026.10 nebo novější.
 3. V **Nastavení → Hlasoví asistenti → Zpřístupnit** zvolte entity, které má
    asistent vidět.
 
-Modely, hlas, instrukce pro LLM, hledání na internetu a práh jistoty se mění v **Konfigurovat**
-u integrace. Nabídky modelů se načítají živě z katalogu OpenRouter; hlasy závisí
-na zvoleném modelu pro převod textu na řeč.
+Modely, hlas, instrukce pro LLM, hledání na internetu, paměť a práh jistoty se
+mění v **Konfigurovat** u integrace. Nabídky modelů se načítají živě z katalogu
+OpenRouter; hlasy závisí na zvoleném modelu pro převod textu na řeč.
+
+Tamtéž je vidět, co si asistent pamatuje, jedna informace na řádek, a dá se to
+upravit nebo smazat. Asistenta můžete také požádat, ať něco zapomene. Vypnutím
+paměti se nic nesmaže, jen se přestane používat; smaže se až s odebráním
+integrace.
 
 Řeč se standardně přenáší jako MP3. Formát zvuku lze přepnout na PCM, který je
 nekomprimovaný, začne hrát dřív a některé modely (například Gemini TTS) jiný
